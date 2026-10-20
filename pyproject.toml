@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nba-research-bot"
+version = "0.1.0"
+description = "Auditable NBA research and paper-betting prototype"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+nba-bot = "nba_bot.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["nba_bot*"]
+
+[tool.setuptools.package-data]
+nba_bot = ["dashboard.html"]
