@@ -127,6 +127,7 @@ class Store:
 
     def report(self, simulated=False):
         from .collector import collection_status
+        from .history import report as historical_report
         rows = self.db.execute("""SELECT b.*, s.status,s.net FROM bets b LEFT JOIN settlements s
           ON s.seq=(SELECT MAX(x.seq) FROM settlements x WHERE x.bet=b.id)
           WHERE b.simulated=? ORDER BY b.selected,b.id""", (simulated,)).fetchall()
@@ -192,7 +193,7 @@ class Store:
                 q["display_status"] = "Recent snapshot"
         quotes.sort(key=lambda q: (q["start"], q["event_name"], q["market"], q["subject"], q["side"], q["line"], -q["odds"], q["book"]))
         return {"mode": "SIMULATED — NOT LIVE PERFORMANCE" if simulated else "LIVE — NO TRIAL STARTED",
-                "trial_started": None, "collector": collection_status(self, simulated), "quotes": quotes,
+                "trial_started": None, "historical_research": historical_report(), "collector": collection_status(self, simulated), "quotes": quotes,
                 "coverage": {"quotes": len(quotes), "games": len({q["event"] for q in quotes}),
                              "books": len({q["book"] for q in quotes})},
                 "summary": metrics(bets), "breakdowns": breakdowns, "bets": bets,

@@ -16,4 +16,4 @@ nba-bot = "nba_bot.__main__:main"
 include = ["nba_bot*"]
 
 [tool.setuptools.package-data]
-nba_bot = ["dashboard.html"]
+nba_bot = ["dashboard.html", "research_summary.json"]

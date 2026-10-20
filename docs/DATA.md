@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | `demo_book_a`, `demo_book_b` | Simulated traditional price fixtures | None: fictional books, teams and player |
 | The Odds API | Collection-only NBA spreads/totals adapter; additional normalizers | User Render logs and dashboard on 2026-10-20 showed a successful US spreads/totals collection of 704 individual price quotes. No API credential is stored in this repository; per-book coverage and terms still require verification. |
+| FiveThirtyEight Historical NBA Elo | Reviewed CSV, baseline evaluator and aggregate dashboard report | Historical archive ending in 2015 only; CC BY 4.0 attribution in docs/RESEARCH.md |
 | Official NBA injury reports | Research lead only | No ingestion |
 | Press conferences/transcripts | Evidence schema and synthetic example | No recording, transcription or extraction |
 | Exchanges / pick'em | Rejected for selection | None; require different payout and settlement models |
