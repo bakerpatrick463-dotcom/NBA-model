@@ -13,3 +13,6 @@ Initial validation: 2026-10-20, Python 3.12.14.
 - Provider/official documentation network requests failed with proxy tunnel 403. Pricing, terms and current coverage remain unverified.
 
 The test results establish prototype mechanics, not a betting edge or a deployment uptime guarantee. No test data enters live performance reports. Generated databases and local backups are ignored by Git.
+
+
+Scheduled-host update: 24 automated tests passed (the original 14 plus ten scheduling/quota/backup tests). The new cases verify persistent six-hour timing across restarts, 30-minute failure backoff, six attempts per rolling day, the 100-credit reserve, missing-header pause, UTC month rollover, single collector locking, quota-header parsing, no mock fallback, empty snapshot clearing, and seven-copy backup retention without deleting manual backups. A local subprocess check ran combined `web` mode twice on a temporary database: a background worker produced data and a daily backup, `/ready` and mock `/health` passed, SIGTERM exited cleanly, and the restart preserved one selected mock bet. No external API calls were made by these automated checks. The JavaScript syntax check passed. Deployment of scheduled mode on Render still requires the user to update its start command.

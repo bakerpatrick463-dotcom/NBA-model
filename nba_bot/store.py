@@ -9,6 +9,13 @@ from pathlib import Path
 from .core import MODEL, POLICY, Quote, dt, identity, iso, now, profit, value
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS collection_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, started TEXT NOT NULL,
+ region TEXT NOT NULL, estimated_cost INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS provider_usage(attempt INTEGER PRIMARY KEY REFERENCES collection_attempts(id),
+ recorded TEXT NOT NULL, remaining INTEGER, used INTEGER, last_cost INTEGER);
+
+CREATE TABLE IF NOT EXISTS collection_batches(seq INTEGER PRIMARY KEY AUTOINCREMENT,
+ recorded TEXT NOT NULL, simulated INTEGER NOT NULL, quote_count INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS quotes(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS evidence(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS forecasts(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
@@ -33,7 +40,7 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.executescript(SCHEMA)
-        for table in ("quotes", "evidence", "forecasts", "alerts", "bets", "settlements", "operations"):
+        for table in ("quotes", "evidence", "forecasts", "alerts", "bets", "settlements", "operations", "collection_attempts", "provider_usage", "collection_batches"):
             for action in ("UPDATE", "DELETE"):
                 self.db.execute(f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'append-only audit table'); END")
         self.db.commit()
@@ -48,11 +55,21 @@ class Store:
         self.db.execute(f"INSERT OR IGNORE INTO {table} VALUES (?,?)", (key, json.dumps(payload, sort_keys=True)))
         return key
 
-    def collect(self, quotes):
+    def collect(self, quotes, simulated=None):
+        quotes = list(quotes)
+        modes = {q.simulated for q in quotes}
+        if simulated is not None:
+            if modes - {simulated}:
+                raise ValueError("Mixed collection modes")
+            modes.add(simulated)
         with self.db:
             for q in quotes:
                 # Keep even rejected quotes for audit; never silently repair identity.
                 self.put("quotes", asdict(q))
+            for mode in modes:
+                times = [q.collected for q in quotes if q.simulated == mode]
+                self.db.execute("INSERT INTO collection_batches(recorded,simulated,quote_count) VALUES (?,?,?)",
+                                (max(times) if times else iso(now()), mode, len(times)))
 
     def operation(self, mode, ok, detail):
         with self.db:
@@ -109,6 +126,7 @@ class Store:
             self.db.execute("INSERT INTO settlements(bet,status,recorded,reason,source,net) VALUES (?,?,?,?,?,?)", (bet_id, status, timestamp, reason, source, net))
 
     def report(self, simulated=False):
+        from .collector import collection_status
         rows = self.db.execute("""SELECT b.*, s.status,s.net FROM bets b LEFT JOIN settlements s
           ON s.seq=(SELECT MAX(x.seq) FROM settlements x WHERE x.bet=b.id)
           WHERE b.simulated=? ORDER BY b.selected,b.id""", (simulated,)).fetchall()
@@ -153,7 +171,9 @@ class Store:
         ops = [dict(r) for r in self.db.execute("SELECT * FROM operations ORDER BY seq DESC LIMIT 10")]
         stored_quotes = [json.loads(r[0]) for r in self.db.execute("SELECT payload FROM quotes")]
         mode_quotes = [q for q in stored_quotes if q["simulated"] == simulated]
-        latest = max((q["collected"] for q in mode_quotes), default=None)
+        batch = self.db.execute("SELECT recorded FROM collection_batches WHERE simulated=? ORDER BY seq DESC LIMIT 1", (simulated,)).fetchone()
+        stamps = [q["collected"] for q in mode_quotes] + ([batch["recorded"]] if batch else [])
+        latest = max(stamps, default=None)
         # A collection is a snapshot: do not resurrect quotes omitted from its latest batch.
         quotes = [q for q in mode_quotes if q["collected"] == latest]
         for q in quotes:
@@ -172,7 +192,7 @@ class Store:
                 q["display_status"] = "Recent snapshot"
         quotes.sort(key=lambda q: (q["start"], q["event_name"], q["market"], q["subject"], q["side"], q["line"], -q["odds"], q["book"]))
         return {"mode": "SIMULATED — NOT LIVE PERFORMANCE" if simulated else "LIVE — NO TRIAL STARTED",
-                "trial_started": None, "quotes": quotes,
+                "trial_started": None, "collector": collection_status(self, simulated), "quotes": quotes,
                 "coverage": {"quotes": len(quotes), "games": len({q["event"] for q in quotes}),
                              "books": len({q["book"] for q in quotes})},
                 "summary": metrics(bets), "breakdowns": breakdowns, "bets": bets,

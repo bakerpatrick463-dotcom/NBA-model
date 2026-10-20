@@ -34,7 +34,7 @@ Use `python3 -m nba_bot --db /absolute/path/paper.sqlite …` to override storag
 - Immutable original forecasts, synthetic supporting evidence, selections and append-only settlement corrections. Same-day restarts cannot insert a second selection for the same game/policy.
 - Searchable collected-price table with game names, sportsbook names, market/book filters, decimal prices, source timestamps and stale-snapshot labels. Only the latest stored snapshot is shown; refreshing the website does not request provider data. Existing records without display names fall back to their original identifiers.
 - Read-only dashboard/API: wins/losses/pushes/voids/pending, net units, ROI, odds, daily/weekly/book/market/model breakdowns, coarse calibration bins and drawdown. Live reports exclude all simulated selections.
-- Adaptive polling (60 seconds near tipoff, 5 minutes within six hours, otherwise 15 minutes), bounded retry backoff, operational failure records, daily SQLite online backups and freshness-aware health checks.
+- A hosted `web` command runs the dashboard and a single background collector together. Live collection defaults to six-hour development snapshots with a persistent retry/credit guard; mock polling is every 15 minutes. Daily local online backups retain seven managed snapshots. Operational records, schedule status and health checks are visible.
 - A collection-only Odds API adapter for spreads/totals, with normalization support for team totals and basic player props. Live forecasts/selections are deliberately blocked until a real baseline and validated identities/rules exist.
 
 ## What remains
@@ -53,4 +53,20 @@ See [provider coverage and data prerequisites](docs/DATA.md), [deployment](docs/
 - `nba_bot/__main__.py`: CLI, worker and dashboard HTTP server.
 - `tests/test_system.py`: failure cases and end-to-end storage tests.
 
-Nothing has been committed or pushed to GitHub by this implementation. Your project files are in this checkout. A commit saves a version locally; a push uploads that version to GitHub. Do not add `var/`, `.env`, credentials or database files to a commit.
+The prototype is committed and uploaded to GitHub. A commit saves a version locally; a push uploads that version to GitHub. Do not add `var/`, `.env`, credentials or database files to a commit.
+
+## Render: scheduled development collection
+
+After attaching a persistent disk at `/var/data`, use this Start Command on a single paid Python web-service instance:
+
+```bash
+python3 -m nba_bot --db /var/data/paper.sqlite web --live --region us --host 0.0.0.0 --port $PORT
+```
+
+Keep `ODDS_API_KEY` in Render's secure Environment settings. Use `/ready` as the platform health-check path. The background collector and HTTP server run in one process and share the mounted SQLite database. SIGTERM stops the collector and server gracefully. A file lock blocks a second worker on the same database; persistent atomic request reservations stop rapid restarts from making extra paid requests. Do not scale this SQLite deployment to multiple instances.
+
+The initial 500-credit development plan uses a **six-hour** live interval, at most **six attempts per rolling 24 hours**, and a **100-credit reserve** based on provider response headers. Failed unconfirmed requests count toward the limits and retry no sooner than 30 minutes. At two credits per response, four collections/day consume roughly 248 credits in a 31-day month before retries or other uses of the account. This is an estimate, not a provider pricing guarantee. Missing remaining-credit headers pause further requests until the next UTC calendar month; insufficient known quota also pauses collection. Monitor the provider account for calls outside this app.
+
+The dashboard shows the next eligible request and provider credits at the last response. A restart may defer its first request because an earlier reservation is still active. `/ready` checks that the HTTP server and background thread are alive; `/health` reports collection operation health separately from `quotes_fresh`. An old quote stays labeled stale even while the six-hour scheduler is functioning normally. A quota pause can leave the site available while collection health is degraded.
+
+Backups are under `/var/data/backups/auto-YYYY-MM-DD.sqlite`; the latest seven managed daily copies are retained, with manual backups untouched. They are on the same disk and **must still be copied off-host** for disaster recovery. This schedule is for development, not timely betting decisions. No live paper-trial clock starts and live forecasts/selections remain disabled.

@@ -3,82 +3,25 @@ import json
 import logging
 import signal
 import threading
-from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-from .core import iso, now
-from .providers import OddsAPI, mock_candidates
+from .collector import acquire_lock, collection_status, cycle, run_worker
 from .store import Store
 
 LOG = logging.getLogger("nba_bot")
-
-
-def cycle(path, live=False, region="us"):
-    store = Store(path)
-    try:
-        at = now()
-        if live:
-            quotes = OddsAPI(region).collect(at)
-            store.collect(quotes)
-            store.operation("live", True, f"Collected {len(quotes)} quotes; live forecasting disabled")
-        else:
-            candidates = mock_candidates(at)
-            store.research(candidates, at, {"demo_book_a", "demo_book_b"})
-            store.operation("mock", True, f"Processed {len(candidates)} SIMULATED quotes")
-        LOG.info("Collection completed in %s mode", "live" if live else "SIMULATED")
-    except Exception as error:
-        # Never log upstream exception text that may include an API-key URL.
-        store.operation("live" if live else "mock", False, f"Cycle failed ({type(error).__name__}); no replacement data used")
-        raise
-    finally:
-        store.close()
-
-
-def polling_seconds(path, live=False):
-    store = Store(path)
-    try:
-        starts = []
-        from .core import dt
-        for row in store.db.execute("SELECT payload FROM quotes"):
-            q = json.loads(row[0])
-            if q["simulated"] != (not live):
-                continue
-            delta = (dt(q["start"]) - now()).total_seconds()
-            if delta > 0:
-                starts.append(delta)
-        # Conservative cost control; no promise of provider-frequency replication.
-        return 60 if starts and min(starts) <= 3600 else 300 if starts and min(starts) <= 21600 else 900
-    finally:
-        store.close()
 
 
 def worker(path, live, region):
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
-    failures = 0
-    last_backup = None
-    while not stop.is_set():
-        try:
-            cycle(path, live, region)
-            failures = 0
-            if last_backup is None or (now()-last_backup).total_seconds() >= 86400:
-                store = Store(path)
-                try:
-                    store.backup(Path(path).parent / "backups" / (now().strftime("%Y%m%dT%H%M%S%f") + ".sqlite"))
-                    last_backup = now()
-                finally:
-                    store.close()
-        except Exception as error:
-            failures += 1
-            LOG.error("Worker cycle failed (%s); will retry", type(error).__name__)
-        delay = min(900, 30 * 2**min(failures, 5)) if failures else polling_seconds(path, live)
-        stop.wait(delay)
+    with acquire_lock(path):
+        run_worker(path, live, region, stop)
 
 
-def serve(path, host, port):
+def serve(path, host, port, worker_thread=None, stop=None):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             url = urlparse(self.path)
@@ -86,17 +29,20 @@ def serve(path, host, port):
                 body = Path(__file__).with_name("dashboard.html").read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
-            elif url.path in {"/api/dashboard", "/health"}:
+            elif url.path in {"/api/dashboard", "/health", "/ready"}:
                 store = Store(path)
                 try:
                     demo = parse_qs(url.query).get("mode", ["live"])[0] == "mock"
                     report = store.report(demo)
-                    if url.path == "/health":
-                        mode = "mock" if demo else "live"
-                        latest = next((op for op in report["recent_operations"] if op["mode"] == mode), None)
-                        # Three times the maximum normal polling interval is the hard health deadline.
-                        healthy = bool(latest and latest["ok"] and report["freshness_seconds"] is not None and report["freshness_seconds"] < 2700)
-                        report = {"healthy": healthy, "mode": mode, "last_collection": report["last_collection"],
+                    if url.path == "/ready":
+                        healthy = worker_thread is None or worker_thread.is_alive()
+                        report = {"ready": healthy, "background_collector": worker_thread is not None}
+                    elif url.path == "/health":
+                        state = report["collector"]
+                        healthy = state["collector_on_schedule"]
+                        report = {"healthy": healthy, "mode": state["mode"], "collector": state,
+                                  "last_collection": report["last_collection"],
+                                  "quotes_fresh": report["freshness_seconds"] is not None and report["freshness_seconds"] < 120,
                                   "freshness_seconds": report["freshness_seconds"], "trial_started": None}
                     else:
                         healthy = True
@@ -117,17 +63,43 @@ def serve(path, host, port):
         def log_message(self, *_):
             pass
     LOG.info("Dashboard started on port %s", port)
-    ThreadingHTTPServer((host, port), Handler).serve_forever()
+    server = ThreadingHTTPServer((host, port), Handler)
+    if stop is not None:
+        def shutdown(*_):
+            stop.set()
+            threading.Thread(target=server.shutdown, daemon=True).start()
+        signal.signal(signal.SIGTERM, shutdown)
+        signal.signal(signal.SIGINT, shutdown)
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+        if stop is not None:
+            stop.set()
+        if worker_thread is not None:
+            worker_thread.join(timeout=25)
+
+
+def web(path, host, port, live, region):
+    # Single-instance SQLite deployment: web and worker share the mounted database.
+    with acquire_lock(path):
+        stop = threading.Event()
+        collector = threading.Thread(target=run_worker, args=(path, live, region, stop), daemon=True)
+        collector.start()
+        serve(path, host, port, collector, stop)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Paper-only NBA prototype; mock data is never live performance")
     parser.add_argument("--db", default="var/paper.sqlite")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("once", "worker"):
+    for name in ("once", "worker", "web"):
         cmd = sub.add_parser(name)
         cmd.add_argument("--live", action="store_true", help="Collection only; requires ODDS_API_KEY")
         cmd.add_argument("--region", default="us")
+        if name == "web":
+            cmd.add_argument("--host", default="127.0.0.1")
+            cmd.add_argument("--port", type=int, default=8000)
     dashboard = sub.add_parser("serve")
     dashboard.add_argument("--host", default="127.0.0.1")
     dashboard.add_argument("--port", type=int, default=8000)
@@ -146,6 +118,8 @@ def main():
         cycle(args.db, args.live, args.region)
     elif args.command == "worker":
         worker(args.db, args.live, args.region)
+    elif args.command == "web":
+        web(args.db, args.host, args.port, args.live, args.region)
     elif args.command == "serve":
         serve(args.db, args.host, args.port)
     else:

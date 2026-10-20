@@ -5,7 +5,7 @@
 | Source/product | Implemented | Verified live coverage |
 | --- | --- | --- |
 | `demo_book_a`, `demo_book_b` | Simulated traditional price fixtures | None: fictional books, teams and player |
-| The Odds API | Collection-only NBA spreads/totals adapter; additional normalizers | None: no credentials, subscription or authenticated request tested |
+| The Odds API | Collection-only NBA spreads/totals adapter; additional normalizers | User Render logs and dashboard on 2026-10-20 showed a successful US spreads/totals collection of 704 individual price quotes. No API credential is stored in this repository; per-book coverage and terms still require verification. |
 | Official NBA injury reports | Research lead only | No ingestion |
 | Press conferences/transcripts | Evidence schema and synthetic example | No recording, transcription or extraction |
 | Exchanges / pick'em | Rejected for selection | None; require different payout and settlement models |
@@ -16,7 +16,7 @@ We do not scan “every sportsbook.” Broad coverage must be demonstrated with 
 
 1. Choose a provider and review its license, automated-use rights, permitted retention/display, current pricing and limits before paid collection. No budget is approved and no subscription has been purchased.
 2. Confirm jurisdiction and which traditional books the user can actually access. Do not infer availability from a provider's region list.
-3. Supply `ODDS_API_KEY` securely through environment settings for the collection-only adapter. The application reads that name; never paste a key into chat, commit it, or print request URLs. The key was absent during initial validation. The provider uses a query parameter, so avoid URL logging in infrastructure as well.
+3. Supply `ODDS_API_KEY` securely through environment settings for the collection-only adapter. The application reads that name; never paste a key into chat, commit it, or print request URLs. The key was absent during initial workspace validation; the user subsequently configured it securely in Render and reported a successful live collection. The provider uses a query parameter, so avoid URL logging in infrastructure as well.
 4. Permit `api.the-odds-api.com` for requests, `the-odds-api.com` for documentation, and `official.nba.com` for official source research. Further official report PDF hosts must be identified and reviewed when implementing ingestion.
 5. Test `python3 -m nba_bot once --live --region us` only after approving collection costs. This command collects spreads/totals, stores provider quotes and does **not** generate live selections. A live worker continuously consumes quota; do not start it until limits are confirmed. The per-event player-prop endpoint is not called by this prototype.
 6. Resolve player/event IDs against trusted roster/schedule data, verify per-book settlement rules, add licensed historical observations/results, and evaluate a time-correct forecasting baseline before enabling live paper selections.
@@ -28,7 +28,7 @@ We do not scan “every sportsbook.” Broad coverage must be demonstrated with 
 - https://the-odds-api.com/sports-odds-data/update-intervals.html
 - https://official.nba.com/
 
-During initial setup on 2026-10-20 these public documentation requests failed at the network proxy with `403 Forbidden` on the tunnel. Current terms, pricing, sportsbook counts, 60-second prop update claims, market access and credit charging therefore remain **unverified**. Do not use older planning allowances as quotes or coverage promises. The adapter is fixture-tested, not authenticated against current live responses.
+During initial setup on 2026-10-20 these public documentation requests failed at the network proxy with `403 Forbidden` on the tunnel. Current terms, pricing, sportsbook counts, 60-second prop update claims, market access and credit charging therefore remain **unverified**. Do not use older planning allowances as quotes or coverage promises. The adapter is fixture-tested locally; the user subsequently demonstrated successful authenticated collection on Render. Current terms, pricing and broader market coverage remain unverified.
 
 ## Evidence requirements for the next iteration
 

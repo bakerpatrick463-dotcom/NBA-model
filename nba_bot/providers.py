@@ -50,11 +50,17 @@ class OddsAPI:
         if not self.key:
             raise ValueError("ODDS_API_KEY is required for live collection")
         self.region = region
+        self.usage = None
 
     def request(self, path, **params):
         params.update(apiKey=self.key)
         try:
             with urlopen(self.BASE + path + "?" + urlencode(params), timeout=20) as response:
+                def count(name):
+                    raw = response.headers.get(name)
+                    return int(raw) if raw is not None and raw.isdigit() else None
+                self.usage = {"remaining": count("x-requests-remaining"),
+                              "used": count("x-requests-used"), "last_cost": count("x-requests-last")}
                 return json.load(response)
         except Exception:
             raise RuntimeError("Odds API request failed; check access, quota, region and configuration (URL redacted)") from None

@@ -1,6 +1,6 @@
 # Deployment prerequisites
 
-**No hosting has been purchased or deployed.** The supplied Compose configuration is a mock-mode starting point. Its images built successfully, and a container smoke test verified collection, dashboard responses and persistence across a dashboard restart; it has not undergone production recovery or uptime testing. It does not begin a live trial. A cloud development workspace is not an independent 24/7 production host.
+**The user has deployed the dashboard on Render and reported adding paid compute and a persistent disk. This workspace cannot directly inspect Render billing, disk attachment, or service settings.** The supplied Compose configuration is a mock-mode starting point. Its images built successfully, and a container smoke test verified collection, dashboard responses and persistence across a dashboard restart; it has not undergone production recovery or uptime testing. It does not begin a live trial. A cloud development workspace is not an independent 24/7 production host.
 
 ## Local / cloud development
 
@@ -21,3 +21,7 @@ Use one worker per SQLite database. Multiple concurrent readers are supported; s
 ## Operational acceptance before a live trial
 
 Demonstrate automatic recovery after process exits, functional health monitoring and outage notifications, quota-aware polling, permanent disk storage and offsite restore. Verify current odds, matched IDs, official source timestamps, reproducible forecasts, immutable pre-tip selection records and audited result settlement. Freeze the evaluation policy and budget. Do not declare 24/7 availability or start the 14-day clock based only on a running container.
+
+## Current Render startup
+
+Use the combined scheduled `web --live` command in README with the database at `/var/data/paper.sqlite`. It supersedes the earlier one-shot collection followed by `serve`. Set the platform health-check path to `/ready`; `/health` is a data-collection diagnostic and can degrade during quota pauses without making the website unavailable. The paid host manages service restarts; external uptime alerts and offsite backup automation still need configuration. Do not claim the deployed six-hour scheduler works until the user deploys this command and its scheduled activity is observed. The free API allowance is for development; timely live paper selections need a different verified data budget and validated forecasts.
