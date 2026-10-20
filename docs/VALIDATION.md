@@ -19,3 +19,5 @@ Scheduled-host update: 24 automated tests passed (the original 14 plus ten sched
 
 
 Historical research update: 29 tests passed, including five new historical cases for future-result independence, same-day result isolation, scoring warmup accounting, duplicate-copy/neutral-game handling and rejection of unreviewed snapshot content. The reviewed 18,173,265-byte real CSV was downloaded via TLS and its SHA-256 recorded. The fixed baseline evaluation actually executed on its contents, producing the bundled derived research summary. The final 2015 home/away regular-season sample contains 1,228 games, with scoring forecasts on 1,069 after warmup. These results are isolated from both mock and live paper ledgers. There is no live model activation or betting trial start.
+
+Book-preference update: all 33 tests passed. Four new cases check normalized user-declared book/jurisdiction configuration, malformed keys, FanDuel/reference separation including absent coverage, and isolation of simulated fixtures. No live selections were enabled by these display preferences.

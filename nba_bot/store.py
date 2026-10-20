@@ -128,6 +128,8 @@ class Store:
     def report(self, simulated=False):
         from .collector import collection_status
         from .history import report as historical_report
+        from .settings import book_preferences
+        preferences = book_preferences()
         rows = self.db.execute("""SELECT b.*, s.status,s.net FROM bets b LEFT JOIN settlements s
           ON s.seq=(SELECT MAX(x.seq) FROM settlements x WHERE x.bet=b.id)
           WHERE b.simulated=? ORDER BY b.selected,b.id""", (simulated,)).fetchall()
@@ -180,6 +182,8 @@ class Store:
         for q in quotes:
             q["event_name"] = q.get("event_name") or q["event"]
             q["book_name"] = q.get("book_name") or q["book"]
+            q["user_listed_book"] = not simulated and q["book"] in preferences["user_listed_books"]
+            q["book_role"] = "Simulated fixture" if simulated else "User-listed sportsbook" if q["user_listed_book"] else "Market reference"
             age = (now()-dt(q["quoted"])).total_seconds()
             if dt(q["start"]) <= now():
                 q["display_status"] = "Started / past event"
@@ -193,7 +197,11 @@ class Store:
                 q["display_status"] = "Recent snapshot"
         quotes.sort(key=lambda q: (q["start"], q["event_name"], q["market"], q["subject"], q["side"], q["line"], -q["odds"], q["book"]))
         return {"mode": "SIMULATED — NOT LIVE PERFORMANCE" if simulated else "LIVE — NO TRIAL STARTED",
-                "trial_started": None, "historical_research": historical_report(), "collector": collection_status(self, simulated), "quotes": quotes,
+                "trial_started": None, "book_configuration": preferences,
+                "book_coverage": {"user_listed_quotes": sum(q["user_listed_book"] for q in quotes),
+                                  "reference_quotes": sum(not q["user_listed_book"] for q in quotes) if not simulated else 0,
+                                  "listed_books_missing_from_snapshot": sorted(set(preferences["user_listed_books"]) - {q["book"] for q in quotes})},
+                "historical_research": historical_report(), "collector": collection_status(self, simulated), "quotes": quotes,
                 "coverage": {"quotes": len(quotes), "games": len({q["event"] for q in quotes}),
                              "books": len({q["book"] for q in quotes})},
                 "summary": metrics(bets), "breakdowns": breakdowns, "bets": bets,
