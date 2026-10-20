@@ -13,7 +13,8 @@ def policy(store, at, region='us'):
         raise ValueError('ODDS_REFRESH_PROFILE must be development or fast')
     latest=store.db.execute('SELECT * FROM provider_usage ORDER BY attempt DESC LIMIT 1').fetchone()
     capacity=(latest['remaining']+latest['used'] if latest and latest['remaining'] is not None and latest['used'] is not None else None)
-    expected_cost=max(2*len(region.split(',')), latest['last_cost'] or 0) if latest else 2*len(region.split(','))
+    bulk_usage=store.db.execute("SELECT u.last_cost FROM provider_usage u JOIN collection_attempts a ON a.id=u.attempt LEFT JOIN request_types t ON t.attempt=a.id WHERE COALESCE(t.kind,'bulk')='bulk' ORDER BY a.id DESC LIMIT 1").fetchone()
+    expected_cost=max(2*len(region.split(',')), bulk_usage['last_cost'] or 0) if bulk_usage else 2*len(region.split(','))
     # Worst-case 31-day, 60-second polling budget, plus a reserve. Not a pricing quote.
     required_capacity=max(100000, math.ceil(31*86400/60)*expected_cost+1000)
     fast=requested=='fast' and capacity is not None and capacity>=required_capacity

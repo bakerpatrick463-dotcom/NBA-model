@@ -4,6 +4,7 @@ import os
 from datetime import timedelta
 from urllib.parse import urlencode
 from urllib.request import urlopen
+from urllib.error import HTTPError
 
 from .core import Quote, allocate_minutes, iso, now, probabilities
 
@@ -34,6 +35,12 @@ def mock_candidates(at):
     return result
 
 
+class ProviderError(RuntimeError):
+    def __init__(self, status=None):
+        self.status = status
+        super().__init__("Odds API request failed; check access, quota, region and configuration (URL redacted)")
+
+
 class OddsAPI:
     """Collection only. Require explicit book availability and rules before selection.
 
@@ -62,8 +69,10 @@ class OddsAPI:
                 self.usage = {"remaining": count("x-requests-remaining"),
                               "used": count("x-requests-used"), "last_cost": count("x-requests-last")}
                 return json.load(response)
+        except HTTPError as error:
+            raise ProviderError(error.code) from None
         except Exception:
-            raise RuntimeError("Odds API request failed; check access, quota, region and configuration (URL redacted)") from None
+            raise ProviderError() from None
 
     def collect(self, at):
         # Team markets use bulk endpoint; props require per-event requests and additional credits.

@@ -27,7 +27,7 @@ def schedule(store, at, region="us"):
     storage=storage_status(store.path)
     if not storage["collection_allowed"]:
         return at+timedelta(hours=1), "Paused: insufficient space for collection and a backup"
-    attempts = store.db.execute("SELECT * FROM collection_attempts ORDER BY id").fetchall()
+    attempts = store.db.execute("SELECT a.*, COALESCE(t.kind,'bulk') AS request_kind FROM collection_attempts a LEFT JOIN request_types t ON t.attempt=a.id ORDER BY a.id").fetchall()
     rolling = [r for r in attempts if dt(r["started"]) > at-timedelta(days=1)]
     if len(rolling) >= refresh["max_attempts_day"]:
         return dt(rolling[0]["started"])+timedelta(days=1), "Daily request-attempt limit"
@@ -36,11 +36,13 @@ def schedule(store, at, region="us"):
         if usage["remaining"] is None:
             return next_month(at), "Paused: provider did not report remaining credits"
         unconfirmed_cost = sum(r["estimated_cost"] for r in attempts if r["id"] > usage["attempt"])
-        cost = max(2*len(region.split(",")), usage["last_cost"] or 0)
+        bulk_cost = store.db.execute("SELECT u.last_cost FROM provider_usage u LEFT JOIN request_types t ON t.attempt=u.attempt WHERE COALESCE(t.kind,'bulk')='bulk' ORDER BY u.attempt DESC LIMIT 1").fetchone()
+        cost = max(2*len(region.split(",")), bulk_cost[0] or 0) if bulk_cost else 2*len(region.split(","))
         if usage["remaining"] - unconfirmed_cost - cost < refresh["reserve"]:
             return next_month(at), f"Paused: protecting {refresh['reserve']}-credit reserve"
-    if attempts:
-        latest = attempts[-1]
+    bulk_attempts = [r for r in attempts if r["request_kind"] == "bulk"]
+    if bulk_attempts:
+        latest = bulk_attempts[-1]
         # Confirmed responses (including empty schedules) use the six-hour interval.
         complete = store.db.execute("SELECT 1 FROM provider_usage WHERE attempt=?", (latest["id"],)).fetchone()
         interval = refresh["interval_seconds"] if complete else refresh["retry_seconds"]

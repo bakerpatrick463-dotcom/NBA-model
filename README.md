@@ -86,3 +86,15 @@ USER_JURISDICTION=US-VA
 ## Faster odds collection
 
 An opt-in fast profile is prepared; it is **not enabled by default**. It targets one-minute polling when upcoming NBA games are available, with provider-quota verification and disk-space guards. The browser checks for newly stored data every five seconds without spending provider credits. Read [freshness, budget and storage requirements](docs/FRESHNESS.md) before changing frequency or purchasing a data plan. Provider-source latency and current player-prop availability still need verification. The initial 1 GB disk needs capacity planning before sustained fast collection.
+
+## One-game FanDuel player-prop access check
+
+Before choosing a paid plan, an operator can run this explicit diagnostic in the deployed service's shell, using its existing secure API-key variable and mounted database:
+
+```bash
+python3 -m nba_bot --db /var/data/paper.sqlite coverage --book fanduel
+```
+
+It chooses the earliest stored upcoming game within 48 hours and makes at most one event-odds request, for points/rebounds/assists/threes and FanDuel only. Estimated cost is four credits; the returned provider header reports actual cost when available. Current-month known quota, daily account limits and the reserve are required, and repeat diagnostics are deferred for one hour. Errors show a sanitized HTTP status/type without printing credential-bearing URLs. Empty props for one game do not prove absence across all games or plans. No alternate bookmaker is substituted.
+
+The result appears under **FanDuel prop coverage test** on the live dashboard. Diagnostic samples are stored separately and do not replace the bulk spreads/totals snapshot or create selections. This command does not enable continuous prop collection, validate settlement rules or start the trial. `prices_returned` means this account/book/game returned data; broader coverage needs further observations. A failed request or missing source metadata remains a reported limitation.

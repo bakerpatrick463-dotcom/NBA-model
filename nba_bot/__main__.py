@@ -109,6 +109,8 @@ def main():
     dashboard.add_argument("--port", type=int, default=8000)
     report = sub.add_parser("report")
     report.add_argument("--mock", action="store_true")
+    coverage = sub.add_parser("coverage", help="One upcoming-game FanDuel prop check; estimated four credits")
+    coverage.add_argument("--book", choices=["fanduel"], default="fanduel")
     backup = sub.add_parser("backup")
     backup.add_argument("destination")
     settle = sub.add_parser("settle")
@@ -124,6 +126,12 @@ def main():
         worker(args.db, args.live, args.region)
     elif args.command == "web":
         web(args.db, args.host, args.port, args.live, args.region)
+    elif args.command == "coverage":
+        from .coverage import check
+        result=check(args.db,args.book)
+        print(json.dumps(result,indent=2))
+        if result["status"]=="error":
+            raise SystemExit(1)
     elif args.command == "serve":
         serve(args.db, args.host, args.port)
     else:
