@@ -98,3 +98,13 @@ python3 -m nba_bot --db /var/data/paper.sqlite coverage --book fanduel
 It chooses the earliest stored upcoming game within 48 hours and makes at most one event-odds request, for points/rebounds/assists/threes and FanDuel only. Estimated cost is four credits; the returned provider header reports actual cost when available. Current-month known quota, daily account limits and the reserve are required, and repeat diagnostics are deferred for one hour. Errors show a sanitized HTTP status/type without printing credential-bearing URLs. Empty props for one game do not prove absence across all games or plans. No alternate bookmaker is substituted.
 
 The result appears under **FanDuel prop coverage test** on the live dashboard. Diagnostic samples are stored separately and do not replace the bulk spreads/totals snapshot or create selections. This command does not enable continuous prop collection, validate settlement rules or start the trial. `prices_returned` means this account/book/game returned data; broader coverage needs further observations. A failed request or missing source metadata remains a reported limitation.
+
+## Current statistics and official injury-source access
+
+While paid odds upgrades are deferred, development can check NBA statistics and official report sources without spending Odds API credits:
+
+```bash
+python3 -m nba_bot --db /var/data/paper.sqlite sources
+```
+
+Run this in Render's Shell after the latest deployment. The resulting **Current NBA source checks** section reports each endpoint separately. Reachability is not yet confirmed on Render; this workspace's network blocked those destinations. Injury PDFs are archived rather than automatically interpreted, and the historical player-stat query checks the previous completed season rather than pretending to forecast current games. See [source-check behavior and limitations](docs/CURRENT_DATA.md).

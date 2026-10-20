@@ -9,6 +9,9 @@ from pathlib import Path
 from .core import MODEL, POLICY, Quote, dt, identity, iso, now, profit, value
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS source_check_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, started TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS source_checks(attempt INTEGER PRIMARY KEY REFERENCES source_check_attempts(id), payload TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS source_artifacts(id TEXT PRIMARY KEY, url TEXT NOT NULL, sha256 TEXT NOT NULL, first_observed TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS collection_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, started TEXT NOT NULL,
  region TEXT NOT NULL, estimated_cost INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS request_types(attempt INTEGER PRIMARY KEY REFERENCES collection_attempts(id), kind TEXT NOT NULL);
@@ -45,7 +48,7 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.executescript(SCHEMA)
-        for table in ("quotes", "evidence", "forecasts", "alerts", "bets", "settlements", "operations", "collection_attempts", "provider_usage", "collection_batches", "request_types", "coverage_checks"):
+        for table in ("quotes", "evidence", "forecasts", "alerts", "bets", "settlements", "operations", "collection_attempts", "provider_usage", "collection_batches", "request_types", "coverage_checks", "source_check_attempts", "source_checks", "source_artifacts"):
             for action in ("UPDATE", "DELETE"):
                 self.db.execute(f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'append-only audit table'); END")
         self.db.commit()
@@ -198,7 +201,8 @@ class Store:
                 q["display_status"] = "Recent snapshot"
         quotes.sort(key=lambda q: (q["start"], q["event_name"], q["market"], q["subject"], q["side"], q["line"], -q["odds"], q["book"]))
         coverage_check = self.db.execute("SELECT payload FROM coverage_checks ORDER BY attempt DESC LIMIT 1").fetchone() if not simulated else None
-        return {"latest_prop_coverage_check": json.loads(coverage_check[0]) if coverage_check else None, "mode": "SIMULATED — NOT LIVE PERFORMANCE" if simulated else "LIVE — NO TRIAL STARTED",
+        source_check = self.db.execute("SELECT payload FROM source_checks ORDER BY attempt DESC LIMIT 1").fetchone() if not simulated else None
+        return {"latest_current_data_check": json.loads(source_check[0]) if source_check else None, "latest_prop_coverage_check": json.loads(coverage_check[0]) if coverage_check else None, "mode": "SIMULATED — NOT LIVE PERFORMANCE" if simulated else "LIVE — NO TRIAL STARTED",
                 "trial_started": None, "server_time": iso(now()), "view_version": view_version, "quote_timestamp_age_at_collection": timestamp_ages(quotes), "book_configuration": preferences,
                 "book_coverage": {"user_listed_quotes": sum(q["user_listed_book"] for q in quotes),
                                   "reference_quotes": sum(not q["user_listed_book"] for q in quotes) if not simulated else 0,
@@ -224,7 +228,8 @@ class Store:
         settlement = self.db.execute("SELECT MAX(s.seq) FROM settlements s JOIN bets b ON b.id=s.bet WHERE b.simulated=?", (simulated,)).fetchone()[0]
         usage = self.db.execute("SELECT MAX(attempt) FROM provider_usage").fetchone()[0] if not simulated else None
         coverage = self.db.execute("SELECT MAX(attempt) FROM coverage_checks").fetchone()[0] if not simulated else None
-        return identity([stamp,batch,operation,bet,settlement,usage,coverage,book_preferences(),os.environ.get("ODDS_REFRESH_PROFILE", "development")])
+        sources = self.db.execute("SELECT MAX(attempt) FROM source_checks").fetchone()[0] if not simulated else None
+        return identity([stamp,batch,operation,bet,settlement,usage,coverage,sources,book_preferences(),os.environ.get("ODDS_REFRESH_PROFILE", "development")])
 
     def latest_quotes(self, simulated=False):
         # Indexed lookup keeps HTTP refreshes bounded to the current snapshot as history grows.

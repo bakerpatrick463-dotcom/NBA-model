@@ -109,6 +109,7 @@ def main():
     dashboard.add_argument("--port", type=int, default=8000)
     report = sub.add_parser("report")
     report.add_argument("--mock", action="store_true")
+    sub.add_parser("sources", help="Check public NBA stats/injury sources without Odds API credits")
     coverage = sub.add_parser("coverage", help="One upcoming-game FanDuel prop check; estimated four credits")
     coverage.add_argument("--book", choices=["fanduel"], default="fanduel")
     backup = sub.add_parser("backup")
@@ -126,6 +127,9 @@ def main():
         worker(args.db, args.live, args.region)
     elif args.command == "web":
         web(args.db, args.host, args.port, args.live, args.region)
+    elif args.command == "sources":
+        from .current_data import check
+        print(json.dumps(check(args.db),indent=2))
     elif args.command == "coverage":
         from .coverage import check
         result=check(args.db,args.book)
