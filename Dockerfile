@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /app
+COPY requirements.txt ./requirements.txt
+RUN python3 -m pip install --no-cache-dir --require-hashes -r requirements.txt
 COPY nba_bot ./nba_bot
 RUN mkdir -p /app/var && chown -R 10001:10001 /app
 USER 10001:10001

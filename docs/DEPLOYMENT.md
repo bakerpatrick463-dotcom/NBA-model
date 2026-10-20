@@ -1,10 +1,28 @@
 # Deployment prerequisites
 
+## Render injury-report text extraction
+
+Set the Render **Build Command** to:
+
+```bash
+python3 -m pip install --require-hashes -r requirements.txt && python3 -m unittest discover -s tests -v
+```
+
+Keep the existing start command and persistent database path. After deployment, run in the Render shell:
+
+```bash
+python3 -m nba_bot --db /var/data/paper.sqlite injuries
+```
+
+This reads the latest archived official PDF locally, verifies its SHA-256 against the source manifest, and stores immutable extracted page text. It makes no network requests and consumes no Odds API credits. Repeat runs reuse the stored extraction. `--full` prints every page; the dashboard also shows the extracted text. The source file's label, first observed time and unknown publication time stay distinct. PDF text order may differ from the visual report; no player statuses, minutes restrictions or forecasts are inferred from it.
+
+The user-reported Render source check on October 20, 2026 archived an official injury PDF, while scoreboard access returned HTTP 403 and historical statistics timed out. PDF availability does not resolve those separate statistics blockers. Local extraction has been checked with a synthetic PDF; the actual archived report must still be checked on Render because NBA URLs are blocked from this development workspace.
+
 **The user has deployed the dashboard on Render and reported adding paid compute and a persistent disk. This workspace cannot directly inspect Render billing, disk attachment, or service settings.** The supplied Compose configuration is a mock-mode starting point. Its images built successfully, and a container smoke test verified collection, dashboard responses and persistence across a dashboard restart; it has not undergone production recovery or uptime testing. It does not begin a live trial. A cloud development workspace is not an independent 24/7 production host.
 
 ## Local / cloud development
 
-Use the existing checkout; each Codex task is isolated, so no extra Git worktree is needed. Python 3.12+ is the only runtime requirement. Run tests and one mock collection, then start the worker and dashboard as separate processes. See README commands. Use an absolute persistent database path if running from another directory. The standard-library dashboard is for local development; do not expose it directly to the Internet.
+Use the existing checkout; each Codex task is isolated, so no extra Git worktree is needed. Use Python 3.12+ and install the hash-pinned requirements in a virtual environment for PDF extraction. Run tests and one mock collection, then start the worker and dashboard as separate processes. See README commands. Use an absolute persistent database path if running from another directory. The standard-library dashboard is for local development; do not expose it directly to the Internet.
 
 ## Proposed single-host mock deployment
 

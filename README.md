@@ -4,10 +4,13 @@ A working **paper-only, simulated-data prototype**. It does not place real bets.
 
 ## Start here
 
-Use Python 3.12 or newer. The application and tests use only the standard library; no subscriptions or package installs are needed for the demo.
+Use Python 3.12 or newer. The mock demo and core tests use the standard library. Official injury PDF text extraction additionally requires the pinned reader in `requirements.txt`; no subscription is required for that reader.
 
 ```bash
 cd /workspace/NBA-model
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install --require-hashes -r requirements.txt
 python3 -m unittest discover -s tests -v
 python3 -m nba_bot once
 python3 -m nba_bot serve

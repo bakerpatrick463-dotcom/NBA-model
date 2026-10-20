@@ -7,7 +7,7 @@ name = "nba-research-bot"
 version = "0.1.0"
 description = "Auditable NBA research and paper-betting prototype"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["pypdf==6.21.1"]
 
 [project.scripts]
 nba-bot = "nba_bot.__main__:main"
