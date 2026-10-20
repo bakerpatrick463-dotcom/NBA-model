@@ -126,6 +126,44 @@ class SystemTests(unittest.TestCase):
             self.assertEqual(copy.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(copy.execute("SELECT COUNT(*) FROM bets").fetchone()[0], 1)
 
+    def test_quote_view_latest_snapshot_and_mode_separation(self):
+        self.store.collect([self.q, replace(self.q, simulated=False, event="live-event",
+                                         event_name="B at A", book_name="Book A")])
+        live = self.store.report(False)
+        self.assertEqual(live["coverage"], {"quotes": 1, "games": 1, "books": 1})
+        self.assertEqual(live["quotes"][0]["event_name"], "B at A")
+        self.assertFalse(live["quotes"][0]["simulated"])
+        self.assertEqual(live["summary"]["selections"], 0)
+        newer = replace(self.q, simulated=False, event="new-event", book="other-book",
+                        collected=iso(self.at+timedelta(seconds=1)))
+        self.store.collect([newer])
+        self.assertEqual([q["event"] for q in self.store.report(False)["quotes"]], ["new-event"])
+        self.assertEqual(len(self.store.report(True)["quotes"]), 1)
+
+    def test_quote_view_legacy_metadata_staleness_and_empty(self):
+        self.assertEqual(self.store.report(False)["coverage"]["quotes"], 0)
+        from dataclasses import asdict
+        q = asdict(replace(self.q, quoted=iso(self.at-timedelta(minutes=10))))
+        del q["event_name"]
+        del q["book_name"]
+        with self.store.db:
+            self.store.put("quotes", q)
+        item = self.store.report(True)["quotes"][0]
+        self.assertEqual(item["event_name"], self.q.event)
+        self.assertEqual(item["book_name"], self.q.book)
+        self.assertEqual(item["display_status"], "Stale snapshot")
+
+    def test_game_names_preserve_provider_event_identity(self):
+        events = [{"id": "nba-1", "commence_time": self.q.start, "home_team": "A", "away_team": "B",
+                   "bookmakers": [{"key": "book", "title": "Book Name", "last_update": iso(self.at),
+                                   "markets": [{"key": "totals", "outcomes": [
+                                       {"name": "Over", "point": 220.5, "price": 1.91}]}]}]}]
+        q = OddsAPI.normalize(events, self.at, "us")[0]
+        self.assertEqual(q.event, "nba-1")
+        self.assertEqual(q.subject, "nba-1")
+        self.assertEqual(q.event_name, "B at A")
+        self.assertEqual(q.book_name, "Book Name")
+
     def test_provider_normalization_rejects_wrong_team(self):
         events = [{"id": "nba-1", "commence_time": self.q.start, "home_team": "A", "away_team": "B", "bookmakers": [
             {"key": "book", "last_update": iso(self.at), "markets": [

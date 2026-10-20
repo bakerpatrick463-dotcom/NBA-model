@@ -68,6 +68,8 @@ class Quote:
     status: str = "active"
     commission: float = 0.0
     product: str = "sportsbook"
+    event_name: str = ""
+    book_name: str = ""
 
     def validate(self, at):
         if self.market not in {"points", "assists", "rebounds", "threes", "team_total", "total", "spread"}:

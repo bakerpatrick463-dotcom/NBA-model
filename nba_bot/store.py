@@ -151,10 +151,31 @@ class Store:
             peak = max(peak, equity)
             drawdown = max(drawdown, peak - equity)
         ops = [dict(r) for r in self.db.execute("SELECT * FROM operations ORDER BY seq DESC LIMIT 10")]
-        quote_times = [json.loads(r[0])["collected"] for r in self.db.execute("SELECT payload FROM quotes") if json.loads(r[0])["simulated"] == simulated]
-        latest = max(quote_times) if quote_times else None
+        stored_quotes = [json.loads(r[0]) for r in self.db.execute("SELECT payload FROM quotes")]
+        mode_quotes = [q for q in stored_quotes if q["simulated"] == simulated]
+        latest = max((q["collected"] for q in mode_quotes), default=None)
+        # A collection is a snapshot: do not resurrect quotes omitted from its latest batch.
+        quotes = [q for q in mode_quotes if q["collected"] == latest]
+        for q in quotes:
+            q["event_name"] = q.get("event_name") or q["event"]
+            q["book_name"] = q.get("book_name") or q["book"]
+            age = (now()-dt(q["quoted"])).total_seconds()
+            if dt(q["start"]) <= now():
+                q["display_status"] = "Started / past event"
+            elif age < 0 or dt(q["quoted"]) > dt(q["collected"]):
+                q["display_status"] = "Invalid timestamp"
+            elif q["status"] != "active":
+                q["display_status"] = q["status"]
+            elif age > 120 or (now()-dt(q["collected"])).total_seconds() > 120:
+                q["display_status"] = "Stale snapshot"
+            else:
+                q["display_status"] = "Recent snapshot"
+        quotes.sort(key=lambda q: (q["start"], q["event_name"], q["market"], q["subject"], q["side"], q["line"], -q["odds"], q["book"]))
         return {"mode": "SIMULATED — NOT LIVE PERFORMANCE" if simulated else "LIVE — NO TRIAL STARTED",
-                "trial_started": None, "summary": metrics(bets), "breakdowns": breakdowns, "bets": bets,
+                "trial_started": None, "quotes": quotes,
+                "coverage": {"quotes": len(quotes), "games": len({q["event"] for q in quotes}),
+                             "books": len({q["book"] for q in quotes})},
+                "summary": metrics(bets), "breakdowns": breakdowns, "bets": bets,
                 "calibration": calibration, "max_drawdown_units": drawdown,
                 "last_collection": latest, "freshness_seconds": (now()-dt(latest)).total_seconds() if latest else None,
                 "recent_operations": ops, "closing_line_movement": None,

@@ -28,7 +28,8 @@ def mock_candidates(at):
     for subject, market, line, mean, sd in specs:
         for book, odds in (("demo_book_a", 1.91), ("demo_book_b", 2.02)):
             q = Quote(event, iso(start), subject, market, "home" if market == "spread" else "over", float(line), odds,
-                      book, "demo", iso(at), iso(at), True)
+                      book, "demo", iso(at), iso(at), True,
+                      event_name="Harbor vs Metro (fictional)", book_name=book)
             result.append((q, probabilities(q, mean, sd), assumption, evidence))
     return result
 
@@ -93,5 +94,7 @@ class OddsAPI:
                         result.append(Quote(event["id"], iso(event["commence_time"]), subject, kind, side,
                                             float(outcome["point"]), float(outcome["price"]), book["key"], region,
                                             iso(stamp), iso(at), False,
-                                            rules="UNVERIFIED provider/book-specific settlement rules"))
+                                            rules="UNVERIFIED provider/book-specific settlement rules",
+                                            event_name=f"{event['away_team']} at {event['home_team']}",
+                                            book_name=book.get("title", book["key"])))
         return result
