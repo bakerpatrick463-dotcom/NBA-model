@@ -82,3 +82,7 @@ USER_JURISDICTION=US-VA
 ```
 
 `AVAILABLE_BOOKS` accepts comma-separated provider bookmaker keys. Without it, live books are displayed as market references. `USER_JURISDICTION` is an optional user-declared label, not a verified eligibility determination. These labels are visible on the dashboard. Configured live views default to **My listed books**; choose **All collected books** for reference prices. The API reports missing listed books rather than substituting another sportsbook. Simulated fixtures never become personally available live books. This view configuration does not enable live selections, establish that a particular market is available in an account, or narrow the existing provider request; it consumes no additional API calls.
+
+## Faster odds collection
+
+An opt-in fast profile is prepared; it is **not enabled by default**. It targets one-minute polling when upcoming NBA games are available, with provider-quota verification and disk-space guards. The browser checks for newly stored data every five seconds without spending provider credits. Read [freshness, budget and storage requirements](docs/FRESHNESS.md) before changing frequency or purchasing a data plan. Provider-source latency and current player-prop availability still need verification. The initial 1 GB disk needs capacity planning before sustained fast collection.

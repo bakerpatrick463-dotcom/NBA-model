@@ -11,11 +11,11 @@
 | Press conferences/transcripts | Evidence schema and synthetic example | No recording, transcription or extraction |
 | Exchanges / pick'em | Rejected for selection | None; require different payout and settlement models |
 
-We do not scan “every sportsbook.” Broad coverage must be demonstrated with an account-specific coverage inventory, book identifiers, geographical restrictions, supported markets/periods, suspension behavior, quote timestamps, price updates, historical availability and settlement rules. Reference books and user-available books must be distinct lists. Mock selection uses an explicit two-book allowlist; no live availability list has been configured.
+We do not scan “every sportsbook.” Broad coverage must be demonstrated with an account-specific coverage inventory, book identifiers, geographical restrictions, supported markets/periods, suspension behavior, quote timestamps, price updates, historical availability and settlement rules. Reference books and user-available books must be distinct lists. Mock selection uses an explicit two-book allowlist. Live user-declared book preferences are supported with AVAILABLE_BOOKS and USER_JURISDICTION; the user identified FanDuel in Virginia, but account-specific coverage is not independently verified.
 
 ## Live prerequisites
 
-1. Choose a provider and review its license, automated-use rights, permitted retention/display, current pricing and limits before paid collection. No budget is approved and no subscription has been purchased.
+1. Choose a provider and review its license, automated-use rights, permitted retention/display, current pricing and limits before paid collection. The user authorized necessary spending and has configured paid Render hosting. A paid odds subscription is not yet confirmed; current user-reported plan listings are recorded in docs/FRESHNESS.md.
 2. Confirm jurisdiction and which traditional books the user can actually access. Do not infer availability from a provider's region list.
 3. Supply `ODDS_API_KEY` securely through environment settings for the collection-only adapter. The application reads that name; never paste a key into chat, commit it, or print request URLs. The key was absent during initial workspace validation; the user subsequently configured it securely in Render and reported a successful live collection. The provider uses a query parameter, so avoid URL logging in infrastructure as well.
 4. Permit `api.the-odds-api.com` for requests, `the-odds-api.com` for documentation, and `official.nba.com` for official source research. Further official report PDF hosts must be identified and reviewed when implementing ingestion.
@@ -29,7 +29,7 @@ We do not scan “every sportsbook.” Broad coverage must be demonstrated with 
 - https://the-odds-api.com/sports-odds-data/update-intervals.html
 - https://official.nba.com/
 
-During initial setup on 2026-10-20 these public documentation requests failed at the network proxy with `403 Forbidden` on the tunnel. Current terms, pricing, sportsbook counts, 60-second prop update claims, market access and credit charging therefore remain **unverified**. Do not use older planning allowances as quotes or coverage promises. The adapter is fixture-tested locally; the user subsequently demonstrated successful authenticated collection on Render. Current terms, pricing and broader market coverage remain unverified.
+During initial setup on 2026-10-20 these public documentation requests failed at the network proxy with `403 Forbidden` on the tunnel. Current terms, sportsbook counts, market access and credit charging could not be independently retrieved. The user subsequently supplied current pricing listings and an official update-interval screenshot; see docs/FRESHNESS.md for those observations and their limits. Do not use older planning allowances as quotes or coverage promises. The adapter is fixture-tested locally; the user subsequently demonstrated successful authenticated collection on Render. Current terms, pricing and broader market coverage remain unverified.
 
 ## Evidence requirements for the next iteration
 

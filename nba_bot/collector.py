@@ -7,6 +7,7 @@ from pathlib import Path
 from .core import dt, iso, now
 from .providers import OddsAPI, mock_candidates
 from .store import Store
+from .refresh import policy, storage_status
 
 LOG = logging.getLogger("nba_bot")
 LIVE_INTERVAL = 6 * 3600
@@ -22,9 +23,13 @@ def next_month(at):
 
 def schedule(store, at, region="us"):
     """Return next eligible request time and why; must run inside reservation transaction."""
+    refresh=policy(store,at,region)
+    storage=storage_status(store.path)
+    if not storage["collection_allowed"]:
+        return at+timedelta(hours=1), "Paused: insufficient space for collection and a backup"
     attempts = store.db.execute("SELECT * FROM collection_attempts ORDER BY id").fetchall()
     rolling = [r for r in attempts if dt(r["started"]) > at-timedelta(days=1)]
-    if len(rolling) >= MAX_ATTEMPTS_DAY:
+    if len(rolling) >= refresh["max_attempts_day"]:
         return dt(rolling[0]["started"])+timedelta(days=1), "Daily request-attempt limit"
     usage = store.db.execute("SELECT * FROM provider_usage ORDER BY attempt DESC LIMIT 1").fetchone()
     if usage and dt(usage["recorded"]).strftime("%Y-%m") == at.strftime("%Y-%m"):
@@ -32,16 +37,16 @@ def schedule(store, at, region="us"):
             return next_month(at), "Paused: provider did not report remaining credits"
         unconfirmed_cost = sum(r["estimated_cost"] for r in attempts if r["id"] > usage["attempt"])
         cost = max(2*len(region.split(",")), usage["last_cost"] or 0)
-        if usage["remaining"] - unconfirmed_cost - cost < CREDIT_RESERVE:
-            return next_month(at), "Paused: protecting 100-credit reserve"
+        if usage["remaining"] - unconfirmed_cost - cost < refresh["reserve"]:
+            return next_month(at), f"Paused: protecting {refresh['reserve']}-credit reserve"
     if attempts:
         latest = attempts[-1]
         # Confirmed responses (including empty schedules) use the six-hour interval.
         complete = store.db.execute("SELECT 1 FROM provider_usage WHERE attempt=?", (latest["id"],)).fetchone()
-        interval = LIVE_INTERVAL if complete else RETRY_INTERVAL
+        interval = refresh["interval_seconds"] if complete else refresh["retry_seconds"]
         due = dt(latest["started"])+timedelta(seconds=interval)
         if due > at:
-            return due, "Scheduled six-hour refresh" if complete else "Retry backoff"
+            return due, ("Scheduled six-hour refresh" if refresh["effective"]=="development" else f"Adaptive refresh ({interval}s)") if complete else "Retry backoff"
     return at, "Ready to collect"
 
 
@@ -102,13 +107,14 @@ def collection_status(store, simulated=False, at=None):
     else:
         due, reason = schedule(store, at)
     usage = store.db.execute("SELECT remaining,used,last_cost,recorded FROM provider_usage ORDER BY attempt DESC LIMIT 1").fetchone()
-    return {"mode": mode, "next_eligible_collection": iso(due), "schedule_status": reason,
-            "interval_hours": None if simulated else 6,
+    refresh=policy(store,at)
+    return {"mode": mode, "refresh_profile":refresh, "storage":storage_status(store.path), "next_eligible_collection": iso(due), "schedule_status": reason,
+            "interval_hours": None if simulated else refresh["interval_seconds"]/3600,
             "provider_credits": dict(usage) if usage and not simulated else None,
             "last_operation": dict(op) if op else None,
             "collector_on_schedule": bool(op and op["ok"] and not reason.startswith("Paused:")
-                                          and at-dt(op["recorded"]) <= timedelta(seconds=LIVE_INTERVAL if not simulated else 900)+timedelta(minutes=5)),
-            "note": "Six-hour development snapshots are too infrequent for live paper selections"}
+                                          and at-dt(op["recorded"]) <= timedelta(seconds=refresh["interval_seconds"] if not simulated else 900)+timedelta(minutes=5)),
+            "note": refresh["note"] if not simulated else "Simulated fixtures only"}
 
 
 def daily_backup(path):
@@ -145,7 +151,7 @@ def acquire_lock(path):
 
 
 def run_worker(path, live, region, stop):
-    LOG.info("Scheduled collector started: %s", "live, six-hour development interval" if live else "SIMULATED")
+    LOG.info("Scheduled collector started: %s", "live, quota-aware refresh profile" if live else "SIMULATED")
     while not stop.is_set():
         failed = False
         try:
@@ -166,9 +172,10 @@ def run_worker(path, live, region, stop):
             store = Store(path)
             try:
                 due, _ = schedule(store, now(), region)
+                refresh=policy(store,now(),region)
             finally:
                 store.close()
-            delay = max(RETRY_INTERVAL if failed else 30, min(900, (due-now()).total_seconds()))
+            delay = max(refresh["retry_seconds"] if failed else 1, min(900, (due-now()).total_seconds()))
         else:
             delay = 900
         stop.wait(delay)

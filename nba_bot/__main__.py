@@ -29,11 +29,15 @@ def serve(path, host, port, worker_thread=None, stop=None):
                 body = Path(__file__).with_name("dashboard.html").read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
-            elif url.path in {"/api/dashboard", "/health", "/ready"}:
+            elif url.path in {"/api/dashboard", "/api/changes", "/health", "/ready"}:
                 store = Store(path)
                 try:
                     demo = parse_qs(url.query).get("mode", ["live"])[0] == "mock"
-                    report = store.report(demo)
+                    if url.path == "/api/changes":
+                        report = {"version": store.change_version(demo)}
+                        healthy = True
+                    else:
+                        report = store.report(demo)
                     if url.path == "/ready":
                         healthy = worker_thread is None or worker_thread.is_alive()
                         report = {"ready": healthy, "background_collector": worker_thread is not None}

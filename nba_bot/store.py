@@ -16,7 +16,10 @@ CREATE TABLE IF NOT EXISTS provider_usage(attempt INTEGER PRIMARY KEY REFERENCES
 
 CREATE TABLE IF NOT EXISTS collection_batches(seq INTEGER PRIMARY KEY AUTOINCREMENT,
  recorded TEXT NOT NULL, simulated INTEGER NOT NULL, quote_count INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS collection_batches_mode_seq ON collection_batches(simulated,seq);
 CREATE TABLE IF NOT EXISTS quotes(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS quotes_mode_collected ON quotes
+ (json_extract(payload, '$.simulated'), json_extract(payload, '$.collected'));
 CREATE TABLE IF NOT EXISTS evidence(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS forecasts(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS alerts(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
@@ -129,7 +132,9 @@ class Store:
         from .collector import collection_status
         from .history import report as historical_report
         from .settings import book_preferences
+        from .refresh import timestamp_ages
         preferences = book_preferences()
+        view_version = self.change_version(simulated)
         rows = self.db.execute("""SELECT b.*, s.status,s.net FROM bets b LEFT JOIN settlements s
           ON s.seq=(SELECT MAX(x.seq) FROM settlements x WHERE x.bet=b.id)
           WHERE b.simulated=? ORDER BY b.selected,b.id""", (simulated,)).fetchall()
@@ -172,13 +177,7 @@ class Store:
             peak = max(peak, equity)
             drawdown = max(drawdown, peak - equity)
         ops = [dict(r) for r in self.db.execute("SELECT * FROM operations ORDER BY seq DESC LIMIT 10")]
-        stored_quotes = [json.loads(r[0]) for r in self.db.execute("SELECT payload FROM quotes")]
-        mode_quotes = [q for q in stored_quotes if q["simulated"] == simulated]
-        batch = self.db.execute("SELECT recorded FROM collection_batches WHERE simulated=? ORDER BY seq DESC LIMIT 1", (simulated,)).fetchone()
-        stamps = [q["collected"] for q in mode_quotes] + ([batch["recorded"]] if batch else [])
-        latest = max(stamps, default=None)
-        # A collection is a snapshot: do not resurrect quotes omitted from its latest batch.
-        quotes = [q for q in mode_quotes if q["collected"] == latest]
+        latest, quotes = self.latest_quotes(simulated)
         for q in quotes:
             q["event_name"] = q.get("event_name") or q["event"]
             q["book_name"] = q.get("book_name") or q["book"]
@@ -197,7 +196,7 @@ class Store:
                 q["display_status"] = "Recent snapshot"
         quotes.sort(key=lambda q: (q["start"], q["event_name"], q["market"], q["subject"], q["side"], q["line"], -q["odds"], q["book"]))
         return {"mode": "SIMULATED — NOT LIVE PERFORMANCE" if simulated else "LIVE — NO TRIAL STARTED",
-                "trial_started": None, "book_configuration": preferences,
+                "trial_started": None, "server_time": iso(now()), "view_version": view_version, "quote_timestamp_age_at_collection": timestamp_ages(quotes), "book_configuration": preferences,
                 "book_coverage": {"user_listed_quotes": sum(q["user_listed_book"] for q in quotes),
                                   "reference_quotes": sum(not q["user_listed_book"] for q in quotes) if not simulated else 0,
                                   "listed_books_missing_from_snapshot": sorted(set(preferences["user_listed_books"]) - {q["book"] for q in quotes})},
@@ -209,6 +208,28 @@ class Store:
                 "last_collection": latest, "freshness_seconds": (now()-dt(latest)).total_seconds() if latest else None,
                 "recent_operations": ops, "closing_line_movement": None,
                 "limitations": ["No verified live model or automated settlement", "Closing snapshots unavailable", "Operating costs not collected; excluded from betting P&L", "No validated edge or confidence intervals"]}
+
+    def change_version(self, simulated=False):
+        from .settings import book_preferences
+        import os
+        # Small indexed/count queries let browsers discover changes without redownloading every price.
+        stamp = self.db.execute("SELECT MAX(json_extract(payload, '$.collected')) FROM quotes WHERE json_extract(payload, '$.simulated')=?", (simulated,)).fetchone()[0]
+        batch = self.db.execute("SELECT MAX(seq) FROM collection_batches WHERE simulated=?", (simulated,)).fetchone()[0]
+        mode = "mock" if simulated else "live"
+        operation = self.db.execute("SELECT MAX(seq) FROM operations WHERE mode=?", (mode,)).fetchone()[0]
+        bet = self.db.execute("SELECT MAX(rowid) FROM bets WHERE simulated=?", (simulated,)).fetchone()[0]
+        settlement = self.db.execute("SELECT MAX(s.seq) FROM settlements s JOIN bets b ON b.id=s.bet WHERE b.simulated=?", (simulated,)).fetchone()[0]
+        usage = self.db.execute("SELECT MAX(attempt) FROM provider_usage").fetchone()[0] if not simulated else None
+        return identity([stamp,batch,operation,bet,settlement,usage,book_preferences(),os.environ.get("ODDS_REFRESH_PROFILE", "development")])
+
+    def latest_quotes(self, simulated=False):
+        # Indexed lookup keeps HTTP refreshes bounded to the current snapshot as history grows.
+        quote_stamp = self.db.execute("SELECT MAX(json_extract(payload, '$.collected')) FROM quotes WHERE json_extract(payload, '$.simulated')=?", (simulated,)).fetchone()[0]
+        batch = self.db.execute("SELECT recorded FROM collection_batches WHERE simulated=? ORDER BY seq DESC LIMIT 1", (simulated,)).fetchone()
+        stamps = [stamp for stamp in (quote_stamp, batch["recorded"] if batch else None) if stamp]
+        latest = max(stamps, default=None)
+        quotes = [json.loads(r[0]) for r in self.db.execute("SELECT payload FROM quotes WHERE json_extract(payload, '$.simulated')=? AND json_extract(payload, '$.collected')=?", (simulated, latest))] if latest else []
+        return latest, quotes
 
     def backup(self, destination):
         target = Path(destination)
