@@ -112,6 +112,7 @@ def main():
     injury = sub.add_parser("injuries", help="Extract text from the latest verified archived official injury PDF; no network requests")
     injury.add_argument("--full", action="store_true", help="Print all extracted pages instead of a short preview")
     sub.add_parser("sources", help="Check public NBA stats/injury sources without Odds API credits")
+    sub.add_parser("stats-check", help="Check BALLDONTLIE NBA account access with at most five requests; no automatic polling")
     coverage = sub.add_parser("coverage", help="One upcoming-game FanDuel prop check; estimated four credits")
     coverage.add_argument("--book", choices=["fanduel"], default="fanduel")
     backup = sub.add_parser("backup")
@@ -134,6 +135,12 @@ def main():
         result=extract(args.db)
         print(json.dumps(result if args.full else summary(result),indent=2))
         if result["status"] in {"dependency_missing","error"}:
+            raise SystemExit(1)
+    elif args.command == "stats-check":
+        from .statistics_provider import check
+        result=check(args.db)
+        print(json.dumps(result,indent=2))
+        if result['status']=='configuration_required':
             raise SystemExit(1)
     elif args.command == "sources":
         from .current_data import check

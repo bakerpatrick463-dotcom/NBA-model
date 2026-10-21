@@ -104,6 +104,19 @@ The result appears under **FanDuel prop coverage test** on the live dashboard. D
 
 ## Current statistics and official injury-source access
 
+For the subscribed BALLDONTLIE NBA account, first save `BALLDONTLIE_API_KEY` in
+Render's secret environment settings, deploy, then run:
+
+```bash
+python3 -m nba_bot --db /var/data/paper.sqlite stats-check
+```
+
+This bounded check reads at most five response pages for teams, active players,
+games, historical player statistics and injuries. Results appear under **NBA
+statistics connection**. It does not use Odds API credits, enable automatic stats
+polling or create live predictions. See [connection instructions and sample
+limitations](docs/STATISTICS_PROVIDER.md).
+
 While paid odds upgrades are deferred, development can check NBA statistics and official report sources without spending Odds API credits:
 
 ```bash

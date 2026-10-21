@@ -61,6 +61,11 @@ def fetch(url, directory, artifacts=None):
         raise SourceError(type(error.reason).__name__) from None
     except TimeoutError:
         raise SourceError('Timeout') from None
+    return archive(body,metadata,directory,artifacts)
+
+
+def archive(body,metadata,directory,artifacts=None):
+    """Retain verified response bytes without fetching or rewriting older artifacts."""
     directory=Path(directory)
     directory.mkdir(parents=True,exist_ok=True)
     destination=directory/(metadata['sha256']+'.source')
