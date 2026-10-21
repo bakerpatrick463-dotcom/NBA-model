@@ -56,9 +56,10 @@ are append-only. No Odds API credits are used; its polling schedule is unchanged
 
 After imports, a local identity check uses the newest finished team/roster/game
 snapshots and structured official injury report. Snapshot/report observations
-must be at most 24 hours old. It requires exact normalized first and last name,
-current team, game calendar date and ordered opponents. It supports only one
-explicit team-label alias (`LA Clippers` / `Los Angeles Clippers`); it never
+must be at most 24 hours old. It requires exact normalized first and last name
+or an explicitly reviewed player-record alias, current team, game calendar date
+and ordered opponents. It supports one explicit team-label alias (`LA Clippers` /
+`Los Angeles Clippers`) and the bounded player exception documented below; it never
 removes player suffixes or guesses fuzzy/ambiguous matches. Missing/ambiguous
 records remain unresolved, and `NOT YET SUBMITTED` stays a team-report notice.
 
@@ -70,6 +71,30 @@ results, import progress and unresolved cases appear in a separate dashboard
 section; simulated mode excludes them. Statistical coverage checks, a recent
 chronological baseline, cross-provider event mapping and evaluation remain
 prerequisites for predictions. No trial, settlement or live selection is enabled.
+
+### Reviewed player spelling: Nic / Nicolas Claxton
+
+The supplied official report prints `Claxton, Nic` for Chicago. The user's
+read-only query of the saved active roster returned BALLDONTLIE player `666508`,
+`Nicolas Claxton`, on Chicago team `5`. The reviewed exception records the report
+hash and original roster snapshot run ID. It applies only to that provider ID
+and those exact source/provider name fields; it is not a general `Nic → Nicolas`
+rule. Same-team and unambiguous date/opponent checks remain required, and another
+exact-name candidate still makes the result ambiguous. The source spelling,
+status, prior unmatched check and original snapshots stay intact. New results
+include the alias ID and review evidence and use a new mapping version.
+
+After deploying identity-rule changes, run this local command in Render Shell:
+
+```bash
+python3 -m nba_bot --db /var/data/paper.sqlite identity-check
+```
+
+It makes **no API requests** and does not require a key. It reuses saved snapshots
+subject to their freshness checks, writes a new versioned result if needed and
+prints a short summary. Missing, stale or incomplete inputs produce `not_ready`
+with a reason; old rules/results remain in the audit history. The dashboard asks
+for a fresh check rather than displaying an old mapping version as current.
 
 ## Connect on Render
 

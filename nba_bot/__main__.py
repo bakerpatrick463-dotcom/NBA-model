@@ -113,6 +113,7 @@ def main():
     injury.add_argument("--full", action="store_true", help="Print all extracted pages instead of a short preview")
     sub.add_parser("sources", help="Check public NBA stats/injury sources without Odds API credits")
     sub.add_parser("stats-check", help="Check BALLDONTLIE NBA account access with at most five requests; no automatic polling")
+    sub.add_parser("identity-check", help="Recheck official source identities against saved snapshots; no API requests")
     stats_import = sub.add_parser("stats-import", help="Resume versioned BALLDONTLIE roster/games/history imports; does not enable predictions")
     stats_import.add_argument("--scope", choices=["all","teams","roster","games","history"], default="all")
     stats_import.add_argument("--max-pages", type=int, choices=range(1,501), default=300, metavar="1..500")
@@ -140,6 +141,14 @@ def main():
         print(json.dumps(result if args.full else summary(result),indent=2))
         if result["status"] in {"dependency_missing","error"}:
             raise SystemExit(1)
+    elif args.command == "identity-check":
+        from .statistics_identity import identify
+        store=Store(args.db)
+        try:
+            result=identify(store)
+            print(json.dumps({key:value for key,value in result.items() if key!='rows'},indent=2))
+        finally:
+            store.close()
     elif args.command == "stats-import":
         from .statistics_import import import_data
         result=import_data(args.db,args.scope,args.max_pages,args.refresh,

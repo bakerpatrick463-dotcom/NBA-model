@@ -9,7 +9,7 @@ from unittest.mock import Mock,patch
 
 from nba_bot.core import iso
 from nba_bot.statistics_import import import_data,import_lock
-from nba_bot.statistics_identity import identify,match_rows,visible_check
+from nba_bot.statistics_identity import VERSION,identify,match_rows,visible_check
 from nba_bot.statistics_provider import StatisticsError,reserve_request
 from nba_bot.store import Store
 from test_statistics_provider import AT,event,player,response_for,stats,team
@@ -196,7 +196,7 @@ class StatisticsIdentityTests(unittest.TestCase):
         self.assertIsNone(result['provider_player_id'])
 
     def test_new_partial_or_stale_snapshots_hide_previous_match_without_deleting_it(self):
-        check={'snapshot_runs':{'roster':'original'},'source_sha256':'a','source_parser_version':'v3',
+        check={'mapping_version':VERSION,'snapshot_runs':{'roster':'original'},'source_sha256':'a','source_parser_version':'v3',
                'source_first_observed_at':iso(AT)}
         original=copy.deepcopy(check)
         evidence={'source_sha256':'a','parser_version':'v3'}

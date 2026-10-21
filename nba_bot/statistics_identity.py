@@ -6,7 +6,20 @@ import unicodedata
 
 from .core import dt,identity,iso,now
 
-VERSION='exact-name-team-date-opponents-v1'
+VERSION='exact-name-team-date-opponents-v2-reviewed-aliases'
+
+# Each exception belongs to one verified provider record, not a global nickname
+# rule. The source report and operator-supplied persisted roster entry established
+# this spelling difference while agreeing on current Chicago team membership.
+REVIEWED_PLAYER_ALIASES=(
+    {'id':'bdl-666508-nic-nicolas-claxton-v1','provider_player_id':'666508',
+     'source_first_name':'Nic','source_last_name':'Claxton',
+     'provider_first_name':'Nicolas','provider_last_name':'Claxton',
+     'review_evidence':{'review_date':'2026-10-21',
+                       'source_pdf_sha256':'7caffe199749674aa1418c96ee4985d9af415d4b1615ae71620ffd9b53588a01',
+                       'roster_snapshot_run':'75b0227e4fcd8bf563775e5a19bf44ff09c75cd48eae923d7e34f6a1cc207963',
+                       'roster_team_id':'5','basis':'Official report spelling and user-supplied persisted BALLDONTLIE roster record'}},
+)
 
 
 def name(value):
@@ -16,6 +29,15 @@ def name(value):
 def team_name(value):
     normalized=name(value)
     return {'la clippers':'los angeles clippers'}.get(normalized,normalized)
+
+
+def reviewed_alias(player,first,last):
+    return next((alias for alias in REVIEWED_PLAYER_ALIASES
+                 if player['id']==alias['provider_player_id']
+                 and name(first)==name(alias['source_first_name'])
+                 and name(last)==name(alias['source_last_name'])
+                 and name(player['first_name'])==name(alias['provider_first_name'])
+                 and name(player['last_name'])==name(alias['provider_last_name'])),None)
 
 
 def match_rows(rows,teams,players,games):
@@ -44,8 +66,13 @@ def match_rows(rows,teams,players,games):
             result.append(item); continue
         last,first=row['player_name'].split(',',1)
         athletes=[p for p in players if p.get('current_team_id')==chosen['id']
-                  and name(p['first_name'])==name(first) and name(p['last_name'])==name(last)]
-        if len(athletes)==1: item['provider_player_id']=athletes[0]['id']
+                  and (name(p['first_name'])==name(first) and name(p['last_name'])==name(last)
+                       or reviewed_alias(p,first,last) is not None)]
+        if len(athletes)==1:
+            item['provider_player_id']=athletes[0]['id']
+            alias=reviewed_alias(athletes[0],first,last)
+            item['player_name_match']='reviewed_player_alias' if alias else 'exact_name'
+            if alias: item['reviewed_alias']=alias
         if len(athletes)!=1:
             item['match_status']='ambiguous_player' if athletes else 'unmatched_player'
         elif len(events)!=1:
@@ -85,7 +112,7 @@ def identify(store):
              'source_report_label':evidence.get('filename_timestamp_label'),
              'snapshot_runs':{kind:run['id'] for kind,run in runs.items()},'counts':dict(counts),'rows':rows,
              'canonical_nba_ids_verified':False,'odds_api_event_ids_matched':False,'cached':False,
-             'note':'Exact source names, current team, game date and ordered opponents only. No fuzzy match, suffix removal or historical-roster guess. Matches identify BALLDONTLIE records in these snapshots, not verified NBA/Odds API IDs, fresh availability, minutes limits or predictions. Source entries and prior matches remain unchanged.'}
+             'note':'Exact source names or explicitly reviewed, provider-ID-bound spelling aliases, plus current team, game date and ordered opponents. No generic nickname expansion, fuzzy match, suffix removal or historical-roster guess. Matches identify BALLDONTLIE records in these snapshots, not verified NBA/Odds API IDs, fresh availability, minutes limits or predictions. Source entries and prior matches remain unchanged.'}
     with store.db:
         store.db.execute('INSERT OR IGNORE INTO stats_identity_checks VALUES (?,?,?)',(key,payload['recorded'],json.dumps(payload,sort_keys=True)))
     return json.loads(store.db.execute('SELECT payload FROM stats_identity_checks WHERE id=?',(key,)).fetchone()[0])
@@ -95,6 +122,8 @@ def visible_check(check,imports,evidence):
     """Do not present an older match as valid for newly imported/source versions."""
     if not check:
         return None
+    if check.get('mapping_version')!=VERSION:
+        return {'status':'not_ready','reason':'Identity rules have changed; run identity-check to create a new audit result from the saved snapshots.'}
     active={item['kind']:item for item in imports}
     for kind,run in check['snapshot_runs'].items():
         snapshot=active.get(kind)
