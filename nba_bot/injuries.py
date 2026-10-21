@@ -3,18 +3,45 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
-from pathlib import Path
 
 from .core import identity, iso, now
 from .store import Store
 
 PDF_VERSION='6.21.1'
-PARSER_VERSION='pypdf-6.21.1-layout-v1'
+PARSER_VERSION='pypdf-6.21.1-position-v2'
 
 
 class PDFDependencyError(RuntimeError):
     pass
+
+
+def positioned_text(fragments):
+    """Render display-space (x, y, text) from top to bottom, then left to right.
+
+    Coordinates include both the text matrix and the current transformation
+    matrix. Sorting text-space coordinates alone reverses reports that use a
+    vertically flipped page transform and negative font sizes.
+    """
+    lines=[]
+    for x,y,text in sorted(fragments,key=lambda item:(-item[1],item[0])):
+        if not math.isfinite(x) or not math.isfinite(y) or abs(x)>10000 or abs(y)>10000:
+            raise ValueError('Unsupported PDF text coordinates')
+        if not lines or abs(lines[-1][0]-y)>1:
+            lines.append((y,[]))
+        lines[-1][1].append((x,text))
+    rendered=[]
+    for _,pieces in lines:
+        line=''
+        for x,text in sorted(pieces,key=lambda item:item[0]):
+            # Approximate monospace columns; never silently drop overlapping
+            # words or infer a player/reason association from a visual line.
+            column=max(0,round(x/4))
+            gap=max(1 if line else 0,column-len(line))
+            line+=' '*gap+text
+        rendered.append(line.rstrip())
+    return '\n'.join(rendered)
 
 
 def pdf_pages(path):
@@ -31,7 +58,23 @@ def pdf_pages(path):
         raise ValueError('Report exceeds extraction page limit')
     result=[]
     for number,page in enumerate(reader.pages,1):
-        text=page.extract_text(extraction_mode='layout') or ''
+        if page.rotation:
+            page.transfer_rotation_to_content()
+        fragments=[]
+        characters=0
+        def visit(text,cm,tm,font,size):
+            nonlocal characters
+            text=' '.join(text.split())
+            if not text:
+                return
+            characters+=len(text)
+            if characters>2*1024*1024 or len(fragments)>=200000:
+                raise ValueError('Report text exceeds extraction size limit')
+            x=tm[4]*cm[0]+tm[5]*cm[2]+cm[4]
+            y=tm[4]*cm[1]+tm[5]*cm[3]+cm[5]
+            fragments.append((x,y,text))
+        page.extract_text(visitor_text=visit)
+        text=positioned_text(fragments)
         result.append({'page':number,'text':text})
         if sum(len(p['text']) for p in result)>2*1024*1024:
             raise ValueError('Report text exceeds extraction size limit')
@@ -79,7 +122,7 @@ def extract(path):
                  'filename_timestamp_label':result.get('filename_timestamp_label'),'publication_time_utc':result.get('publication_time_utc'),
                  'page_count':len(pages),'character_count':sum(len(p['text']) for p in pages),'pages':pages,
                  'player_claims_mapped':False,'cached':False,
-                 'note':'Original PDF text only. No player-status mapping, minutes restriction, probability adjustment, or live prediction is inferred. Text order/layout can differ from the visual PDF; review source context.'}
+                 'note':'Original PDF text ordered by displayed position, with approximate monospace columns. Wrapped reasons remain on their visual lines. No player-status mapping, minutes restriction, probability adjustment, or live prediction is inferred; review source context.'}
         with store.db:
             store.db.execute('INSERT OR IGNORE INTO injury_texts VALUES (?,?)',(key,json.dumps(payload,sort_keys=True)))
         # Concurrent readers always return the original stored extraction; never replace it.

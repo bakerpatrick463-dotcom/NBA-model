@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from nba_bot.core import identity
-from nba_bot.injuries import PDFDependencyError, extract
+from nba_bot.injuries import PARSER_VERSION, PDFDependencyError, extract, pdf_pages, positioned_text
 from nba_bot.store import Store
 
 
@@ -85,3 +85,70 @@ class InjuryTextTests(unittest.TestCase):
         with patch('nba_bot.injuries.pdf_pages') as reader:
             self.assertEqual(extract(self.path)['status'], 'not_ready')
             reader.assert_not_called()
+
+    def test_new_parser_preserves_previous_extraction_instead_of_reusing_it(self):
+        old={'parser_version':'pypdf-6.21.1-layout-v1','pages':[{'page':1,'text':'Earlier reverse-order extraction'}]}
+        store=Store(self.path)
+        with store.db:
+            store.db.execute('INSERT INTO injury_texts VALUES (?,?)',
+                             (identity([self.digest,old['parser_version']]),json.dumps(old)))
+        store.close()
+        with patch('nba_bot.injuries.pdf_pages',return_value=[{'page':1,'text':'Corrected source order'}]):
+            self.assertEqual(extract(self.path)['parser_version'],PARSER_VERSION)
+        store=Store(self.path)
+        try:
+            records=store.db.execute('SELECT payload FROM injury_texts ORDER BY rowid').fetchall()
+            self.assertEqual(len(records),2)
+            self.assertEqual(json.loads(records[0][0]),old)
+            self.assertEqual(store.report(False)['latest_injury_text']['parser_version'],PARSER_VERSION)
+        finally:
+            store.close()
+
+
+class PDFReadingOrderTests(unittest.TestCase):
+    def test_baseline_jitter_and_scrambled_fragment_order_preserve_columns(self):
+        fragments=[(120,100,'Reason'),(80,100.3,'Out'),(0,130,'Header'),
+                   (40,100,'Player'),(120,88,'Continuation'),(0,100,'Team'),(0,20,'Footer')]
+        lines=positioned_text(fragments).splitlines()
+        self.assertEqual(lines[0],'Header')
+        self.assertLess(lines[1].index('Team'),lines[1].index('Player'))
+        self.assertLess(lines[1].index('Player'),lines[1].index('Out'))
+        self.assertLess(lines[1].index('Out'),lines[1].index('Reason'))
+        self.assertEqual(lines[2].strip(),'Continuation')
+        self.assertEqual(lines[-1],'Footer')
+
+    def test_invalid_coordinates_are_rejected(self):
+        for coordinate in (float('nan'),float('inf'),1e9):
+            with self.subTest(coordinate=coordinate), self.assertRaises(ValueError):
+                positioned_text([(coordinate,100,'Unsupported')])
+
+    def test_real_pdf_with_flipped_coordinates_and_negative_font_size(self):
+        try:
+            from pypdf import PdfWriter
+            from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject
+        except ImportError:
+            self.skipTest('Pinned PDF reader is not installed; install requirements.txt')
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'report.pdf'
+            writer=PdfWriter()
+            for flipped in (True,False):
+                page=writer.add_blank_page(width=600,height=800)
+                font=DictionaryObject({NameObject('/Type'):NameObject('/Font'),NameObject('/Subtype'):NameObject('/Type1'),NameObject('/BaseFont'):NameObject('/Helvetica')})
+                page[NameObject('/Resources')]=DictionaryObject({NameObject('/Font'):DictionaryObject({NameObject('/F1'):writer._add_object(font)})})
+                stream=DecodedStreamObject()
+                # Deliberately write footer before header: stream order also
+                # cannot determine the visual reading order.
+                if flipped:
+                    content=b'1 0 0 -1 0 800 cm BT /F1 -10 Tf 1 0 0 1 20 750 Tm (Footer) Tj 1 0 0 1 20 50 Tm (Header) Tj 1 0 0 1 20 100 Tm (Player) Tj 1 0 0 1 250 100 Tm (Out) Tj ET'
+                else:
+                    content=b'BT /F1 10 Tf 1 0 0 1 20 50 Tm (Footer) Tj 1 0 0 1 20 750 Tm (Header) Tj 1 0 0 1 20 700 Tm (Player) Tj 1 0 0 1 250 700 Tm (Out) Tj ET'
+                stream.set_data(content)
+                page[NameObject('/Contents')]=writer._add_object(stream)
+            writer.write(path)
+            pages=pdf_pages(path)
+        self.assertEqual(len(pages),2)
+        for page in pages:
+            lines=page['text'].splitlines()
+            self.assertEqual(lines[0].strip(),'Header')
+            self.assertEqual(lines[-1].strip(),'Footer')
+            self.assertLess(lines[1].index('Player'),lines[1].index('Out'))
