@@ -113,6 +113,10 @@ def main():
     injury.add_argument("--full", action="store_true", help="Print all extracted pages instead of a short preview")
     sub.add_parser("sources", help="Check public NBA stats/injury sources without Odds API credits")
     sub.add_parser("stats-check", help="Check BALLDONTLIE NBA account access with at most five requests; no automatic polling")
+    stats_import = sub.add_parser("stats-import", help="Resume versioned BALLDONTLIE roster/games/history imports; does not enable predictions")
+    stats_import.add_argument("--scope", choices=["all","teams","roster","games","history"], default="all")
+    stats_import.add_argument("--max-pages", type=int, choices=range(1,501), default=300, metavar="1..500")
+    stats_import.add_argument("--refresh", action="store_true", help="Start new snapshots, preserving previous data")
     coverage = sub.add_parser("coverage", help="One upcoming-game FanDuel prop check; estimated four credits")
     coverage.add_argument("--book", choices=["fanduel"], default="fanduel")
     backup = sub.add_parser("backup")
@@ -135,6 +139,16 @@ def main():
         result=extract(args.db)
         print(json.dumps(result if args.full else summary(result),indent=2))
         if result["status"] in {"dependency_missing","error"}:
+            raise SystemExit(1)
+    elif args.command == "stats-import":
+        from .statistics_import import import_data
+        result=import_data(args.db,args.scope,args.max_pages,args.refresh,
+                           notify=lambda message: print(message,flush=True))
+        # Keep shell output reviewable; complete immutable match rows are in the database/dashboard.
+        if result.get('identity_check',{}).get('rows') is not None:
+            result['identity_check']={key:value for key,value in result['identity_check'].items() if key!='rows'}
+        print(json.dumps(result,indent=2))
+        if result['status'] in {'configuration_required','paused_error'}:
             raise SystemExit(1)
     elif args.command == "stats-check":
         from .statistics_provider import check

@@ -166,7 +166,7 @@ class Client:
             raise StatisticsError('Response JSON schema is unsupported') from None
 
 
-def normalize(data,endpoint,params):
+def normalize(data,endpoint,params,include_rows=False):
     parser={'teams':team,'players/active':player,'games':game,'stats':statistic,'player_injuries':injury}[endpoint]
     rows=[parser(row) for row in data['data']]
     ids=[r['player']['id'] if endpoint=='player_injuries' else r['id'] for r in rows]
@@ -185,7 +185,7 @@ def normalize(data,endpoint,params):
         identifier(cursor)
     # Missing pagination metadata is never proof that a roster/history is complete.
     pagination_known=endpoint=='teams' or isinstance(data.get('meta'),dict) and 'next_cursor' in data['meta']
-    return {'status':'ok' if rows else 'empty','row_count':len(rows),'sample_rows':rows[:5],
+    result={'status':'ok' if rows else 'empty','row_count':len(rows),'sample_rows':rows[:5],
             'provider_namespace':'balldontlie','pagination_metadata_present':pagination_known,
             'more_pages':cursor is not None if pagination_known else None,
             'pagination_exhausted':cursor is None if pagination_known else None,
@@ -193,6 +193,21 @@ def normalize(data,endpoint,params):
             'final_stats_with_required_fields':sum(r['game']['final'] and r['baseline_fields_complete'] for r in rows) if endpoint=='stats' else None,
             'source_update_time':None,
             'note':'One bounded response page only. Observation time is not a source-update timestamp or latency measurement. IDs belong to BALLDONTLIE, not NBA or Odds API.'}
+    if include_rows:
+        result['normalized_rows']=rows
+    return result
+
+
+def reserve_request(store,endpoint,at):
+    """Share a conservative rolling-minute budget across diagnostics/imports."""
+    with store.db:
+        store.db.execute('BEGIN IMMEDIATE')
+        recent=store.db.execute('SELECT started FROM statistics_requests WHERE started>? ORDER BY id',
+                                (iso(at-timedelta(minutes=1)),)).fetchall()
+        if len(recent)>=30:
+            return dt(recent[0]['started'])+timedelta(seconds=61)
+        store.db.execute('INSERT INTO statistics_requests(started,endpoint) VALUES (?,?)',(iso(at),endpoint))
+    return None
 
 
 def check(path):
@@ -227,6 +242,9 @@ def check(path):
                 results[name]={'status':'not_checked','reason':'Stopped after authentication or rate-limit response; no retry'}
                 continue
             artifacts=[]
+            if reserve_request(store,endpoint,now()) is not None:
+                results[name]={'status':'not_checked','reason':'Shared statistics request budget reached; no request sent'}
+                continue
             requests+=1
             try:
                 response=client.request(endpoint,params,store.path.parent/'source-artifacts',artifacts)

@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from nba_bot.current_data import (SCOREBOARD, check, fetch, latest_injury_link,
-                                  minutes, parse_boxscore, parse_scoreboard, season_start)
+                                  archive, minutes, parse_boxscore, parse_scoreboard, season_start)
 from nba_bot.store import Store
 
 
@@ -89,6 +89,14 @@ class CurrentDataTests(unittest.TestCase):
                 self.assertIsNotNone(store.report(False)['latest_current_data_check'])
                 self.assertIsNone(store.report(True)['latest_current_data_check'])
             finally: store.close()
+
+    def test_failed_artifact_publication_does_not_leave_partial_canonical_bytes(self):
+        import hashlib
+        raw=b'{"sample":1}'
+        metadata={'sha256':hashlib.sha256(raw).hexdigest()}
+        with tempfile.TemporaryDirectory() as folder,patch('nba_bot.current_data.os.link',side_effect=OSError('Interrupted publication')):
+            with self.assertRaises(OSError): archive(raw,metadata,folder)
+            self.assertEqual(list(Path(folder).iterdir()),[])
 
     def test_failed_schema_still_retains_source_artifact_provenance(self):
         from nba_bot.current_data import run_source, history_check

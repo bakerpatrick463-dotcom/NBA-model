@@ -4,7 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from html.parser import HTMLParser
@@ -75,13 +77,22 @@ def archive(body,metadata,directory,artifacts=None):
         if hashlib.sha256(destination.read_bytes()).hexdigest()!=metadata['sha256']:
             raise SourceError('Existing artifact integrity mismatch')
     else:
-        # Exclusive creation preserves any existing local work and content identity.
+        # Publish complete, flushed bytes atomically without overwriting an
+        # existing artifact. A process exit cannot leave a partial canonical file.
+        temporary=None
         try:
-            with destination.open('xb') as output:
+            with tempfile.NamedTemporaryFile(dir=directory,suffix='.partial',delete=False) as output:
+                temporary=Path(output.name)
                 output.write(body)
+                output.flush()
+                os.fsync(output.fileno())
+            os.link(temporary,destination)
         except FileExistsError:
-            if hashlib.sha256(destination.read_bytes()).hexdigest()!=metadata['sha256']:
+            if destination.is_symlink() or hashlib.sha256(destination.read_bytes()).hexdigest()!=metadata['sha256']:
                 raise SourceError('Concurrent artifact integrity mismatch')
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
     metadata['artifact_path']=str(destination)
     if artifacts is not None:
         artifacts.append(metadata)

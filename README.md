@@ -117,6 +117,14 @@ statistics connection**. It does not use Odds API credits, enable automatic stat
 polling or create live predictions. See [connection instructions and sample
 limitations](docs/STATISTICS_PROVIDER.md).
 
+After account access is confirmed, run `python3 -m nba_bot --db /var/data/paper.sqlite stats-import` in Render Shell. It saves versioned roster,
+schedule and recent historical-stat pages, with checkpoints that resume when the
+same command is rerun. It may take several minutes. Saved imports and exact
+injury-to-provider identity checks appear on the live dashboard. Pagination
+completion does not establish complete statistical coverage, a validated model or
+current availability; predictions remain disabled. See [resumable import
+behavior](docs/STATISTICS_PROVIDER.md#resumable-roster-schedule-and-history-imports).
+
 While paid odds upgrades are deferred, development can check NBA statistics and official report sources without spending Odds API credits:
 
 ```bash

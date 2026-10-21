@@ -9,6 +9,13 @@ from pathlib import Path
 from .core import MODEL, POLICY, Quote, dt, identity, iso, now, profit, value
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS statistics_requests(id INTEGER PRIMARY KEY AUTOINCREMENT, started TEXT NOT NULL, endpoint TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS statistics_requests_started ON statistics_requests(started);
+CREATE TABLE IF NOT EXISTS stats_import_runs(id TEXT PRIMARY KEY, kind TEXT NOT NULL, created TEXT NOT NULL, params TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS stats_import_pages(run TEXT NOT NULL REFERENCES stats_import_runs(id), page INTEGER NOT NULL, recorded TEXT NOT NULL, next_cursor TEXT, terminal INTEGER NOT NULL, row_count INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run,page));
+CREATE TABLE IF NOT EXISTS stats_import_objects(run TEXT NOT NULL REFERENCES stats_import_runs(id), entity TEXT NOT NULL, logical_identity TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run,entity), UNIQUE(run,logical_identity));
+CREATE TABLE IF NOT EXISTS stats_import_events(seq INTEGER PRIMARY KEY AUTOINCREMENT, run TEXT NOT NULL REFERENCES stats_import_runs(id), recorded TEXT NOT NULL, payload TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS stats_identity_checks(id TEXT PRIMARY KEY, recorded TEXT NOT NULL, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS stats_check_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, started TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS stats_checks(attempt INTEGER PRIMARY KEY REFERENCES stats_check_attempts(id), payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS injury_texts(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
@@ -51,7 +58,7 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.executescript(SCHEMA)
-        for table in ("quotes", "evidence", "forecasts", "alerts", "bets", "settlements", "operations", "collection_attempts", "provider_usage", "collection_batches", "request_types", "coverage_checks", "source_check_attempts", "source_checks", "source_artifacts", "injury_texts", "stats_check_attempts", "stats_checks"):
+        for table in ("quotes", "evidence", "forecasts", "alerts", "bets", "settlements", "operations", "collection_attempts", "provider_usage", "collection_batches", "request_types", "coverage_checks", "source_check_attempts", "source_checks", "source_artifacts", "injury_texts", "stats_check_attempts", "stats_checks", "statistics_requests", "stats_import_runs", "stats_import_pages", "stats_import_objects", "stats_import_events", "stats_identity_checks"):
             for action in ("UPDATE", "DELETE"):
                 self.db.execute(f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'append-only audit table'); END")
         self.db.commit()
@@ -207,7 +214,12 @@ class Store:
         source_check = self.db.execute("SELECT payload FROM source_checks ORDER BY attempt DESC LIMIT 1").fetchone() if not simulated else None
         injury_text = self.db.execute("SELECT payload FROM injury_texts ORDER BY rowid DESC LIMIT 1").fetchone() if not simulated else None
         stats_check = self.db.execute("SELECT payload FROM stats_checks ORDER BY attempt DESC LIMIT 1").fetchone() if not simulated else None
-        return {"latest_stats_check": json.loads(stats_check[0]) if stats_check else None, "latest_injury_text": json.loads(injury_text[0]) if injury_text else None, "latest_current_data_check": json.loads(source_check[0]) if source_check else None, "latest_prop_coverage_check": json.loads(coverage_check[0]) if coverage_check else None, "mode": "SIMULATED — NOT LIVE PERFORMANCE" if simulated else "LIVE — NO TRIAL STARTED",
+        from .statistics_import import latest_runs
+        from .statistics_identity import visible_check
+        identity_check = self.db.execute("SELECT payload FROM stats_identity_checks ORDER BY rowid DESC LIMIT 1").fetchone() if not simulated else None
+        imports = latest_runs(self) if not simulated else []
+        current_match = visible_check(json.loads(identity_check[0]), imports, json.loads(injury_text[0]) if injury_text else None) if identity_check else None
+        return {"statistics_imports": imports, "latest_statistics_identity_check": current_match, "latest_stats_check": json.loads(stats_check[0]) if stats_check else None, "latest_injury_text": json.loads(injury_text[0]) if injury_text else None, "latest_current_data_check": json.loads(source_check[0]) if source_check else None, "latest_prop_coverage_check": json.loads(coverage_check[0]) if coverage_check else None, "mode": "SIMULATED — NOT LIVE PERFORMANCE" if simulated else "LIVE — NO TRIAL STARTED",
                 "trial_started": None, "server_time": iso(now()), "view_version": view_version, "quote_timestamp_age_at_collection": timestamp_ages(quotes), "book_configuration": preferences,
                 "book_coverage": {"user_listed_quotes": sum(q["user_listed_book"] for q in quotes),
                                   "reference_quotes": sum(not q["user_listed_book"] for q in quotes) if not simulated else 0,
@@ -236,7 +248,8 @@ class Store:
         sources = self.db.execute("SELECT MAX(attempt) FROM source_checks").fetchone()[0] if not simulated else None
         injury = self.db.execute("SELECT MAX(rowid) FROM injury_texts").fetchone()[0] if not simulated else None
         stats = self.db.execute("SELECT MAX(attempt) FROM stats_checks").fetchone()[0] if not simulated else None
-        return identity([stamp,batch,operation,bet,settlement,usage,coverage,sources,injury,stats,book_preferences(),os.environ.get("ODDS_REFRESH_PROFILE", "development")])
+        imports = [self.db.execute(f"SELECT MAX(rowid) FROM {table}").fetchone()[0] for table in ('stats_import_runs','stats_import_pages','stats_import_events','stats_identity_checks')] if not simulated else []
+        return identity([stamp,batch,operation,bet,settlement,usage,coverage,sources,injury,stats,imports,book_preferences(),os.environ.get("ODDS_REFRESH_PROFILE", "development")])
 
     def latest_quotes(self, simulated=False):
         # Indexed lookup keeps HTTP refreshes bounded to the current snapshot as history grows.
