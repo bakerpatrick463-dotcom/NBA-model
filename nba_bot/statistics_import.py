@@ -14,7 +14,7 @@ from .refresh import storage_status
 from .statistics_provider import Client,MAX_BODY,StatisticsError,normalize,reserve_request
 from .store import Store
 
-ENDPOINTS={'teams':'teams','roster':'players/active','games':'games','history':'stats'}
+ENDPOINTS={'teams':'teams','roster':'players/active','games':'games','history-games':'games','history':'stats'}
 
 
 @contextmanager
@@ -49,6 +49,8 @@ def specifications(at):
     season=season_start(at)-1
     return {'teams':{},'roster':{'per_page':100},
             'games':{'dates[]':[(day+timedelta(days=i)).isoformat() for i in range(-2,3)],'per_page':100},
+            'history-games':{'seasons[]':[season],'start_date':f'{season+1}-02-01','end_date':f'{season+1}-06-30',
+                             'postseason':'false','per_page':100},
             'history':{'seasons[]':[season],'start_date':f'{season+1}-02-01','end_date':f'{season+1}-06-30',
                        'postseason':'false','per_page':100}}
 
@@ -56,7 +58,7 @@ def specifications(at):
 def choose_run(store,kind,params,refresh):
     encoded=json.dumps(params,sort_keys=True)
     previous=store.db.execute('SELECT * FROM stats_import_runs WHERE kind=? AND params=? ORDER BY rowid DESC LIMIT 1',(kind,encoded)).fetchone()
-    if previous and not refresh and (kind=='history' or now()-dt(previous['created'])<timedelta(hours=24)):
+    if previous and not refresh and (kind in ('history','history-games') or now()-dt(previous['created'])<timedelta(hours=24)):
         return previous
     with store.db:
         run_id=identity([kind,params,iso(now()),uuid.uuid4().hex])

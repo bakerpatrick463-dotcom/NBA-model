@@ -125,6 +125,20 @@ completion does not establish complete statistical coverage, a validated model o
 current availability; predictions remain disabled. See [resumable import
 behavior](docs/STATISTICS_PROVIDER.md#resumable-roster-schedule-and-history-imports).
 
+To reconcile that history and evaluate fixed recent baselines, import its
+corresponding game schedule, then run the local research command:
+
+```bash
+python3 -m nba_bot --db /var/data/paper.sqlite stats-import --scope history-games
+python3 -m nba_bot --db /var/data/paper.sqlite research-check
+```
+
+The live dashboard shows **Recent baseline research**, with provider coverage
+findings, chronological validation/final metrics and player count/minute error
+metrics. A data-quality failure withholds evaluation. These are retrospective
+research results, not current forecasts or betting performance. See [recent
+research methods and limits](docs/RECENT_RESEARCH.md).
+
 While paid odds upgrades are deferred, development can check NBA statistics and official report sources without spending Odds API credits:
 
 ```bash

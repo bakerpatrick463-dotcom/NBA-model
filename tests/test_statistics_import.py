@@ -26,7 +26,8 @@ class StatisticsImportTests(unittest.TestCase):
         self.folder=tempfile.TemporaryDirectory(); self.addCleanup(self.folder.cleanup)
         self.path=Path(self.folder.name)/'paper.sqlite'
         self.client=Mock()
-        self.client.request.side_effect=lambda endpoint,*args: response_for(endpoint)
+        self.client.request.side_effect=lambda endpoint,*args: ({'data':[event(True)],'meta':{'next_cursor':None}}
+                                                              if endpoint=='games' and 'start_date' in args[0] else response_for(endpoint))
         for target,value in [('nba_bot.statistics_import.Client',self.client),
                              ('nba_bot.statistics_import.now',AT),('nba_bot.statistics_identity.now',AT)]:
             patcher=patch(target,return_value=value); patcher.start(); self.addCleanup(patcher.stop)
@@ -146,7 +147,7 @@ class StatisticsImportTests(unittest.TestCase):
         store.close()
         result=import_data(self.path)
         self.assertEqual(result['status'],'pagination_finished')
-        self.assertEqual(result['statistics_api_requests'],4)
+        self.assertEqual(result['statistics_api_requests'],5)
         self.assertEqual(result['odds_api_requests'],0)
         matches=result['identity_check']
         self.assertEqual(matches['counts'],{'matched_provider_identity':1})

@@ -172,8 +172,15 @@ def normalize(data,endpoint,params,include_rows=False):
     ids=[r['player']['id'] if endpoint=='player_injuries' else r['id'] for r in rows]
     if len(ids)!=len(set(ids)):
         raise ValueError('Duplicate provider identities within the sample')
-    if endpoint=='games' and any(r['source_calendar_date'] not in params['dates[]'] for r in rows):
-        raise ValueError('Returned games do not match the requested dates')
+    if endpoint=='games':
+        for event in rows:
+            if 'dates[]' in params:
+                valid=event['source_calendar_date'] in params['dates[]']
+            else:
+                valid=(params['start_date']<=event['source_calendar_date']<=params['end_date']
+                       and event['season'] in params['seasons[]'] and not event['postseason'])
+            if not valid:
+                raise ValueError('Returned games do not match the requested date/season window')
     if endpoint=='stats':
         for row in rows:
             event=row['game']
