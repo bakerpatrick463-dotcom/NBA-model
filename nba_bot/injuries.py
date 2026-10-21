@@ -10,15 +10,15 @@ from .core import identity, iso, now
 from .store import Store
 
 PDF_VERSION='6.21.1'
-PARSER_VERSION='pypdf-6.21.1-position-v2'
+PARSER_VERSION='pypdf-6.21.1-rows-v3'
 
 
 class PDFDependencyError(RuntimeError):
     pass
 
 
-def positioned_text(fragments):
-    """Render display-space (x, y, text) from top to bottom, then left to right.
+def positioned_lines(fragments):
+    """Group display-space fragments on the same visual baseline.
 
     Coordinates include both the text matrix and the current transformation
     matrix. Sorting text-space coordinates alone reverses reports that use a
@@ -31,7 +31,13 @@ def positioned_text(fragments):
         if not lines or abs(lines[-1][0]-y)>1:
             lines.append((y,[]))
         lines[-1][1].append((x,text))
+    return lines
+
+
+def positioned_text(fragments):
+    """Render approximate monospace columns without interpreting source claims."""
     rendered=[]
+    lines=positioned_lines(fragments)
     for _,pieces in lines:
         line=''
         for x,text in sorted(pieces,key=lambda item:item[0]):
@@ -75,7 +81,7 @@ def pdf_pages(path):
             fragments.append((x,y,text))
         page.extract_text(visitor_text=visit)
         text=positioned_text(fragments)
-        result.append({'page':number,'text':text})
+        result.append({'page':number,'text':text,'fragments':fragments})
         if sum(len(p['text']) for p in result)>2*1024*1024:
             raise ValueError('Report text exceeds extraction size limit')
     return result
@@ -116,13 +122,16 @@ def extract(path):
         except PDFDependencyError as error:
             return {'status':'dependency_missing','required_package':f'pypdf=={PDF_VERSION}',
                     'reason':str(error),'build_command':'python3 -m pip install --require-hashes -r requirements.txt && python3 -m unittest discover -s tests -v'}
+        from .injury_rows import report_rows
+        rows=report_rows(pages)
+        pages=[{'page':page['page'],'text':page['text']} for page in pages]
         payload={'status':'text_extracted' if any(p['text'].strip() for p in pages) else 'no_extractable_text',
                  'source_url':url,'source_sha256':digest,'parser_version':PARSER_VERSION,
                  'source_first_observed_at':manifest['first_observed'],'processed_at':iso(now()),
                  'filename_timestamp_label':result.get('filename_timestamp_label'),'publication_time_utc':result.get('publication_time_utc'),
                  'page_count':len(pages),'character_count':sum(len(p['text']) for p in pages),'pages':pages,
-                 'player_claims_mapped':False,'cached':False,
-                 'note':'Original PDF text ordered by displayed position, with approximate monospace columns. Wrapped reasons remain on their visual lines. No player-status mapping, minutes restriction, probability adjustment, or live prediction is inferred; review source context.'}
+                 'structured_report':rows,'player_claims_mapped':False,'cached':False,
+                 'note':'PDF text and structured source labels only. Player and event IDs remain unverified; no roster membership, minutes restriction, probability adjustment, or live prediction is inferred.'}
         with store.db:
             store.db.execute('INSERT OR IGNORE INTO injury_texts VALUES (?,?)',(key,json.dumps(payload,sort_keys=True)))
         # Concurrent readers always return the original stored extraction; never replace it.
@@ -138,6 +147,10 @@ def extract(path):
 def summary(result):
     """Keep the default shell output short; the full pages remain in the audit database."""
     output={key:value for key,value in result.items() if key!='pages'}
+    if result.get('structured_report'):
+        report=result['structured_report']
+        output['structured_report']={key:value for key,value in report.items() if key!='rows'}
+        output['structured_report']['row_preview']=report['rows'][:3]
     if result.get('pages'):
         output['first_page_text_preview']=result['pages'][0]['text'][:5000]
     return output

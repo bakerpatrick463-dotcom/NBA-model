@@ -111,3 +111,5 @@ python3 -m nba_bot --db /var/data/paper.sqlite sources
 ```
 
 Run this in Render's Shell after the latest deployment. The resulting **Current NBA source checks** section reports each endpoint separately. Reachability is not yet confirmed on Render; this workspace's network blocked those destinations. Injury PDFs are archived rather than automatically interpreted, and the historical player-stat query checks the previous completed season rather than pretending to forecast current games. See [source-check behavior and limitations](docs/CURRENT_DATA.md).
+
+After a PDF is archived, `python3 -m nba_bot --db /var/data/paper.sqlite injuries` extracts its text and structured source rows locally using the pinned PDF reader. The dashboard shows the reported player name, team, matchup, status and complete wrapped reason with a source page reference. Team reports marked `NOT YET SUBMITTED` remain separate notices. These are archived source labels; canonical player/game matching, current roster validation and live predictions remain unavailable. See [Render extraction setup](docs/DEPLOYMENT.md#render-injury-report-text-extraction).
